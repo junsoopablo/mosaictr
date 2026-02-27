@@ -1,0 +1,48 @@
+# Data files (too large for git)
+*.bam
+*.bam.bai
+*.bai
+*.cram
+*.crai
+*.vcf.gz
+*.vcf.gz.tbi
+*.vcf.gz.csi
+*.fa
+*.fasta
+*.fai
+*.bed.gz
+*.bed.gz.tbi
+
+# Output directory (analysis results, regenerable)
+output/
+
+# Slurm job files
+slurm_jobs/
+
+# External data
+data/puretarget/*.bam
+data/puretarget/*.bam.bai
+
+# Egg info
+*.egg-info/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code
+.claude/
+CLAUDE.md
+
+# Misc
+*.xlsx
+*.tmp
+/tmp/

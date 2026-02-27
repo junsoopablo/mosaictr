@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "haplotr"
+version = "1.0.0"
+description = "HaploTR: haplotype-aware tandem repeat genotyping from long-read sequencing"
+requires-python = ">=3.10"
+dependencies = [
+    "pysam>=0.22",
+    "numpy>=1.24",
+    "click>=8.0",
+    "tqdm>=4.0",
+]
+
+[project.scripts]
+haplotr = "haplotr.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["haplotr*"]

@@ -155,12 +155,6 @@ Columns: chrom, start, end, motif sequence.
 | dropout_flag | 1 if possible allele dropout detected |
 | n_trimmed_h1, n_trimmed_h2 | Reads removed by MAD-based outlier trimming |
 
-## Citation
-
-If you use MosaicTR, please cite:
-
-> Park J, Chang H. MosaicTR: haplotype-aware tandem repeat genotyping and somatic instability quantification from long-read sequencing. *Bioinformatics* (2026).
-
 ## License
 
 MIT License. See [LICENSE](LICENSE) file.

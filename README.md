@@ -6,9 +6,19 @@
 Tandem repeat somatic instability quantification from long-read sequencing.
 
 MosaicTR uses HP (haplotype) tags in BAM files to decompose tandem repeat signals per haplotype, enabling:
-- **Somatic instability** quantification with 2 per-haplotype metrics (HII, IAS)
+- **Somatic instability** quantification per haplotype
 - **Multi-sample comparison** for tissue-specific instability detection
 - **Genotyping** with concordance-based zygosity calling
+
+## Metrics
+
+**HII (Haplotype Instability Index)** — motif-normalized MAD (median absolute deviation) of read-level allele sizes within a haplotype. HII = 0 means stable; higher values indicate greater somatic mosaicism.
+
+$$\text{HII}_k = \frac{\text{median}(|s_i - \tilde{s}_k|)}{\ell}$$
+
+**IAS (Instability Asymmetry Score)** — normalized difference between the two haplotypes' HII values. IAS ≈ 1 indicates instability in one haplotype only (typical heterozygous carrier); IAS ≈ 0 indicates symmetric instability.
+
+$$\text{IAS} = \frac{|\text{HII}_1 - \text{HII}_2|}{\max(\text{HII}_1, \text{HII}_2)}$$
 
 ## Quick Start
 

@@ -46,9 +46,9 @@ def load_instability_tsv(path: str) -> dict[tuple[str, int, int, str], dict]:
             parsed = {}
             float_keys = [
                 "median_h1", "median_h2", "hii_h1", "hii_h2",
-                "ias", "range_h1", "range_h2", "concordance",
+                "ias",
             ]
-            int_keys = ["n_h1", "n_h2", "n_total", "n_trimmed_h1", "n_trimmed_h2"]
+            int_keys = ["n_h1", "n_h2", "n_total"]
 
             for k in float_keys:
                 v = row.get(k, ".")
@@ -57,8 +57,6 @@ def load_instability_tsv(path: str) -> dict[tuple[str, int, int, str], dict]:
                 v = row.get(k, "0")
                 parsed[k] = int(v) if v != "." else 0
             parsed["analysis_path"] = row.get("analysis_path", "unknown")
-            parsed["unstable_haplotype"] = row.get("unstable_haplotype", "none")
-            parsed["dropout_flag"] = row.get("dropout_flag", "0") == "1"
 
             data[key] = parsed
 

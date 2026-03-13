@@ -6,8 +6,9 @@
 Haplotype-aware tandem repeat genotyping and somatic instability analysis from long-read sequencing.
 
 MosaicTR uses HP (haplotype) tags in BAM files to decompose tandem repeat signals per haplotype, enabling:
-- **Genotyping** with concordance-based zygosity calling
 - **Somatic instability** quantification with 2 per-haplotype metrics (HII, IAS)
+- **Multi-sample comparison** for tissue-specific instability detection
+- **Genotyping** with concordance-based zygosity calling
 
 ## Quick Start
 
@@ -19,6 +20,9 @@ mosaictr genotype --bam tagged.bam --loci loci.bed --output genotypes.bed
 
 # Compute somatic instability
 mosaictr instability --bam tagged.bam --loci loci.bed --output instability.tsv
+
+# Compare instability across tissues
+mosaictr compare --baseline blood.tsv --target colon.tsv --output comparison.tsv
 ```
 
 ## Installation
@@ -70,8 +74,32 @@ mosaictr instability \
 Options:
 - `--min-instability 0.0` — Minimum HII threshold for output filtering
 - `--min-hp-reads 3` / `--min-hp-frac 0.15` — HP sufficiency thresholds
-- `--noise-threshold 0.45` — HII threshold for unstable haplotype labeling
 - `--skip-hp-check` — Skip HP tag check (uses gap-split/pooled fallback)
+
+### Compare (pairwise)
+
+```bash
+mosaictr compare \
+  --baseline blood_instability.tsv \
+  --target colon_instability.tsv \
+  --output comparison.tsv
+```
+
+Options:
+- `--noise-threshold 0.45` — HII threshold for calling unstable
+- `--min-delta 0.5` — Minimum ΔHII to report
+- `--baseline-label` / `--target-label` — Tissue labels
+
+### Matrix (multi-sample)
+
+```bash
+mosaictr matrix \
+  --inputs blood.tsv --inputs colon.tsv --inputs brain.tsv \
+  --labels blood --labels colon --labels brain \
+  --output hii_matrix.tsv
+```
+
+Builds a loci × samples HII matrix and classifies each locus as `stable`, `tissue_variable`, or `constitutive`.
 
 ### Evaluate
 
@@ -139,7 +167,7 @@ Columns: chrom, start, end, motif sequence.
 | confidence | Zygosity confidence score [0, 1] |
 | n_reads | Total reads at locus |
 
-### Instability TSV (20 columns)
+### Instability TSV (13 columns)
 
 | Column | Description |
 |--------|-------------|
@@ -147,13 +175,8 @@ Columns: chrom, start, end, motif sequence.
 | median_h1, median_h2 | Median allele size per haplotype (bp) |
 | hii_h1, hii_h2 | Haplotype Instability Index (motif-normalized MAD) |
 | ias | Instability Asymmetry Score (inter-haplotype difference) |
-| range_h1, range_h2 | Read length range per haplotype (p5-p95) |
 | n_h1, n_h2, n_total | Read counts per haplotype and total |
-| concordance | HP concordance score |
 | analysis_path | hp-tagged, gap-split, or pooled |
-| unstable_haplotype | Which haplotype is unstable (h1/h2/both/none) |
-| dropout_flag | 1 if possible allele dropout detected |
-| n_trimmed_h1, n_trimmed_h2 | Reads removed by MAD-based outlier trimming |
 
 ## License
 

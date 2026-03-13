@@ -215,12 +215,9 @@ class TestWriteInstabilityVcf:
             "median_h1": 100.0, "median_h2": 110.0,
             "hii_h1": 0.0, "hii_h2": 0.5,
             "ias": 1.0,
-            "range_h1": 0.0, "range_h2": 5.0,
             "n_h1": 15, "n_h2": 12,
-            "n_total": 27, "concordance": 0.95,
+            "n_total": 27,
             "analysis_path": "hp-tagged",
-            "unstable_haplotype": "h2",
-            "dropout_flag": False,
         }
         base.update(overrides)
         return base
@@ -255,20 +252,6 @@ class TestWriteInstabilityVcf:
         n = write_instability_vcf(output, loci, results, "S1")
         assert n == 0
 
-    def test_dropout_flag(self, tmp_path):
-        """Dropout flag encoded as 0/1 in VCF."""
-        output = str(tmp_path / "inst.vcf")
-        loci = [("chr1", 100, 200, "AC")]
-        results = [self._make_result(dropout_flag=True)]
-        write_instability_vcf(output, loci, results, "S1")
-
-        with open(output) as f:
-            data = [l for l in f if not l.startswith("#")]
-        fields = data[0].strip().split("\t")
-        sample_fields = fields[9].split(":")
-        # DROPOUT is the last FORMAT field
-        assert sample_fields[-1] == "1"
-
     def test_format_keys_present(self, tmp_path):
         """All FORMAT keys should be defined in header."""
         output = str(tmp_path / "inst.vcf")
@@ -279,8 +262,10 @@ class TestWriteInstabilityVcf:
         with open(output) as f:
             content = f.read()
 
-        for key in ["HII", "IAS", "DP", "CONC", "APATH", "MEDIAN", "DROPOUT"]:
+        for key in ["HII", "IAS", "DP", "APATH", "MEDIAN"]:
             assert f"##FORMAT=<ID={key}" in content
+        for key in ["CONC", "DROPOUT"]:
+            assert f"##FORMAT=<ID={key}" not in content
 
     def test_nan_metrics_produce_dots(self, tmp_path):
         """NaN in instability metrics should produce '.' not 'nan'."""
@@ -288,7 +273,7 @@ class TestWriteInstabilityVcf:
         loci = [("chr1", 100, 200, "AC")]
         results = [self._make_result(
             hii_h1=float("nan"), hii_h2=float("inf"),
-            ias=float("nan"), concordance=float("nan"),
+            ias=float("nan"),
         )]
         n = write_instability_vcf(output, loci, results, "S1")
         assert n == 1

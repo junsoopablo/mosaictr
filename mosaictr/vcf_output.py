@@ -240,10 +240,8 @@ _INSTABILITY_VCF_FORMAT_FIELDS = [
     '##FORMAT=<ID=HII,Number=2,Type=Float,Description="Haplotype Instability Index per haplotype (h1,h2)">',
     '##FORMAT=<ID=IAS,Number=1,Type=Float,Description="Instability Asymmetry Score">',
     '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Total read depth at locus">',
-    '##FORMAT=<ID=CONC,Number=1,Type=Float,Description="HP concordance score">',
     '##FORMAT=<ID=APATH,Number=1,Type=String,Description="Analysis path used: hp-tagged, gap-split, or pooled">',
     '##FORMAT=<ID=MEDIAN,Number=2,Type=Float,Description="Per-haplotype median allele sizes (h1,h2)">',
-    '##FORMAT=<ID=DROPOUT,Number=1,Type=Integer,Description="Allele dropout flag (0=no, 1=yes)">',
 ]
 
 
@@ -264,8 +262,7 @@ def write_instability_vcf(
             loci that failed analysis).  Each dict has keys:
             ``median_h1``, ``median_h2``,
             ``hii_h1``, ``hii_h2``, ``ias``,
-            ``n_total``, ``concordance``, ``analysis_path``,
-            ``dropout_flag``.
+            ``n_total``, ``analysis_path``.
         sample_name: Sample identifier used in the VCF column header.
         ref_path: Optional path to the reference FASTA.  When provided it
             is recorded in a ``##reference`` header line and used to fetch
@@ -285,7 +282,7 @@ def write_instability_vcf(
     contigs = _collect_contigs(loci)
     n_written = 0
 
-    fmt_keys = "HII:IAS:DP:CONC:APATH:MEDIAN:DROPOUT"
+    fmt_keys = "HII:IAS:DP:APATH:MEDIAN"
 
     with open(output_path, "w") as f:
         # --- Meta-information lines ---
@@ -322,7 +319,7 @@ def write_instability_vcf(
 
             if result is None:
                 info = f"MOTIF={motif};REF_SIZE={ref_size};END={end}"
-                missing = ".,.:.:0:.:.:.,.:."
+                missing = ".,.:.:0:.:.,."
                 f.write(
                     f"{chrom}\t{pos}\t.\t{ref_base}\t.\t.\t.\t{info}\t"
                     f"{fmt_keys}\t{missing}\n"
@@ -338,9 +335,7 @@ def write_instability_vcf(
             hii_h2 = result["hii_h2"]
             ias = result["ias"]
             n_total = result["n_total"]
-            concordance = result["concordance"]
             analysis_path = result["analysis_path"]
-            dropout_flag = 1 if result["dropout_flag"] else 0
 
             # INFO
             info = (
@@ -351,12 +346,11 @@ def write_instability_vcf(
             # FORMAT sample values
             hii_str = f"{_fmt_float(hii_h1)},{_fmt_float(hii_h2)}"
             ias_str = _fmt_float(ias)
-            conc_str = _fmt_float(concordance)
             median_str = f"{_fmt_float(med1)},{_fmt_float(med2)}"
 
             sample_data = (
-                f"{hii_str}:{ias_str}:{n_total}:{conc_str}:"
-                f"{analysis_path}:{median_str}:{dropout_flag}"
+                f"{hii_str}:{ias_str}:{n_total}:"
+                f"{analysis_path}:{median_str}"
             )
 
             f.write(

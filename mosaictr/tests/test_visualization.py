@@ -144,7 +144,6 @@ class TestInstabilitySummaryPlot:
             "hii_h1": 0.1, "hii_h2": 0.5,
             "ias": 0.3,
             "analysis_path": "hp-tagged",
-            "concordance": 0.95,
         }
         out = str(tmp_path / "summary.png")
         result = instability_summary_plot(reads, 100.0, 3, inst_result, out)

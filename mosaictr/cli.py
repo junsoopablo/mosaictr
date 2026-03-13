@@ -146,8 +146,6 @@ def evaluate(predictions, truth_bed, catalog, output, chroms):
               help="Minimum HII threshold for output filtering (default: 0, no filter)")
 @click.option("--min-reads", default=0, type=int,
               help="Minimum total reads per locus to report (default: 0, no filter)")
-@click.option("--noise-threshold", default=0.45, type=float,
-              help="HII threshold for unstable_haplotype label (default: 0.45, 3σ noise floor)")
 @click.option("--skip-hp-check", is_flag=True, default=False,
               help="Skip HP tag check (for non-HP-tagged BAMs; uses gap-split/pooled fallback)")
 @click.option("--vcf", "vcf_output", default=None, type=click.Path(),
@@ -155,7 +153,7 @@ def evaluate(predictions, truth_bed, catalog, output, chroms):
 @click.option("--sample-name", default="SAMPLE", help="Sample name for VCF output")
 def instability(bam, loci, output, threads, min_mapq, min_flank, max_reads,
                 ref, min_hp_reads, min_hp_frac, min_instability, min_reads,
-                noise_threshold, skip_hp_check, vcf_output, sample_name):
+                skip_hp_check, vcf_output, sample_name):
     """Compute per-haplotype somatic instability metrics for TR loci.
 
     Provides 2 metrics: HII (haplotype instability index) and
@@ -176,7 +174,6 @@ def instability(bam, loci, output, threads, min_mapq, min_flank, max_reads,
         min_hp_frac=min_hp_frac,
         min_instability=min_instability,
         min_reads=min_reads,
-        noise_threshold=noise_threshold,
         skip_hp_check=skip_hp_check,
     )
 
@@ -205,14 +202,12 @@ def instability(bam, loci, output, threads, min_mapq, min_flank, max_reads,
                 else:
                     float_keys = [
                         "median_h1", "median_h2", "hii_h1", "hii_h2",
-                        "ias", "range_h1", "range_h2", "concordance",
+                        "ias",
                     ]
                     int_keys = ["n_h1", "n_h2", "n_total"]
                     row = {k: float(col_map[k]) for k in float_keys}
                     row.update({k: int(col_map[k]) for k in int_keys})
                     row["analysis_path"] = col_map["analysis_path"]
-                    row["unstable_haplotype"] = col_map["unstable_haplotype"]
-                    row["dropout_flag"] = col_map["dropout_flag"] == "1"
                     results.append(row)
         n = write_instability_vcf(vcf_output, loci_list, results, sample_name, ref)
         click.echo(f"VCF written to: {vcf_output} ({n} loci)")

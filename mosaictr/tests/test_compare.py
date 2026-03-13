@@ -30,17 +30,9 @@ def _make_row(hii_h1=0.0, hii_h2=0.0, **kwargs):
     row = {
         "median_h1": 100.0, "median_h2": 100.0,
         "hii_h1": hii_h1, "hii_h2": hii_h2,
-        "ser_h1": 0.0, "ser_h2": 0.0,
-        "scr_h1": 0.0, "scr_h2": 0.0,
-        "ecb_h1": 0.0, "ecb_h2": 0.0,
-        "ias": 0.0, "ais": 0.0,
-        "range_h1": 0.0, "range_h2": 0.0,
+        "ias": 0.0,
         "n_h1": 10, "n_h2": 10, "n_total": 20,
-        "concordance": 0.9,
         "analysis_path": "hp-tagged",
-        "unstable_haplotype": "none",
-        "dropout_flag": False,
-        "n_trimmed_h1": 0, "n_trimmed_h2": 0,
     }
     row.update(kwargs)
     return row
@@ -90,20 +82,16 @@ class TestLoadInstabilityTsv:
         header = (
             "#chrom\tstart\tend\tmotif\t"
             "median_h1\tmedian_h2\thii_h1\thii_h2\t"
-            "ser_h1\tser_h2\tscr_h1\tscr_h2\t"
-            "ecb_h1\tecb_h2\tias\tais\t"
-            "range_h1\trange_h2\tn_h1\tn_h2\tn_total\tconcordance\t"
-            "analysis_path\tunstable_haplotype\tdropout_flag\t"
-            "n_trimmed_h1\tn_trimmed_h2\n"
+            "ias\t"
+            "n_h1\tn_h2\tn_total\t"
+            "analysis_path\n"
         )
         row = (
             "chr1\t1000\t1010\tCAG\t"
             "100\t100\t0.5\t0.3\t"
-            "0.1\t0.1\t0.05\t0.05\t"
-            "0.5\t0.5\t0.2\t0.1\t"
-            "10\t10\t15\t15\t30\t0.9\t"
-            "hp-tagged\tnone\t0\t"
-            "1\t2\n"
+            "0.2\t"
+            "15\t15\t30\t"
+            "hp-tagged\n"
         )
         tsv.write_text(header + row)
         data = load_instability_tsv(str(tsv))
@@ -118,20 +106,16 @@ class TestLoadInstabilityTsv:
         header = (
             "#chrom\tstart\tend\tmotif\t"
             "median_h1\tmedian_h2\thii_h1\thii_h2\t"
-            "ser_h1\tser_h2\tscr_h1\tscr_h2\t"
-            "ecb_h1\tecb_h2\tias\tais\t"
-            "range_h1\trange_h2\tn_h1\tn_h2\tn_total\tconcordance\t"
-            "analysis_path\tunstable_haplotype\tdropout_flag\t"
-            "n_trimmed_h1\tn_trimmed_h2\n"
+            "ias\t"
+            "n_h1\tn_h2\tn_total\t"
+            "analysis_path\n"
         )
         row = (
             "chr1\t1000\t1010\tCAG\t"
             ".\t.\t.\t.\t"
-            ".\t.\t.\t.\t"
-            ".\t.\t.\t.\t"
-            ".\t.\t0\t0\t0\t0\t"
-            "failed\t.\t0\t"
-            "0\t0\n"
+            ".\t"
+            "0\t0\t0\t"
+            "failed\n"
         )
         tsv.write_text(header + row)
         data = load_instability_tsv(str(tsv))

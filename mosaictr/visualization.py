@@ -671,15 +671,9 @@ def _metric_bars_on_axis(ax, result: dict) -> None:
         framealpha=0.85,
     )
 
-    # Confidence / analysis path annotation in lower-left
+    # Analysis path annotation in lower-left
     analysis = result.get("analysis_path", "")
-    concordance = result.get("concordance")
-    annotation_parts = []
     if analysis:
-        annotation_parts.append(f"path: {analysis}")
-    if concordance is not None:
-        annotation_parts.append(f"concordance: {concordance:.2f}")
-    if annotation_parts:
-        ax.text(0.02, 0.95, " | ".join(annotation_parts),
+        ax.text(0.02, 0.95, f"path: {analysis}",
                 transform=ax.transAxes, fontsize=7, va="top",
                 color="#555555", style="italic")

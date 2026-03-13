@@ -24,7 +24,6 @@ from .genotype import (
     _assign_hp0_reads,
     _gap_bimodal_test,
     _group_loci_by_chrom,
-    _hp_concordance,
     _weighted_median,
     extract_reads_enhanced,
 )
@@ -157,78 +156,6 @@ def _ias(hii_1: float, hii_2: float) -> float:
 
 
 # ---------------------------------------------------------------------------
-# Unstable haplotype determination
-# ---------------------------------------------------------------------------
-
-def _determine_unstable_haplotype(
-    hii_h1: float, hii_h2: float, noise_threshold: float = 0.45,
-) -> str:
-    """Determine which haplotype(s) show somatic instability above noise.
-
-    Uses the genome-wide 3σ noise floor threshold (default 0.45) to avoid
-    labeling normal variation as 'unstable'.
-
-    Returns:
-        'h1', 'h2', 'both', or 'none'.
-    """
-    h1_unstable = hii_h1 > noise_threshold
-    h2_unstable = hii_h2 > noise_threshold
-    if h1_unstable and h2_unstable:
-        return "both"
-    if h1_unstable:
-        return "h1"
-    if h2_unstable:
-        return "h2"
-    return "none"
-
-
-# ---------------------------------------------------------------------------
-# Allele dropout detection
-# ---------------------------------------------------------------------------
-
-def _detect_dropout(
-    reads_info: list[ReadInfo], ref_size: float, motif_len: int,
-) -> bool:
-    """Detect suspected allele dropout.
-
-    Flags loci where sufficient reads show near-unimodal size distribution
-    despite the locus being large enough to likely be heterozygous.
-    This can indicate that one allele (typically the expanded pathogenic
-    allele) was lost during library prep or sequencing.
-
-    Stricter criteria than v1 to reduce false positives:
-    - Requires large reference size (>50 motif units) to be meaningful
-    - Requires tight IQR (< motif_len) indicating true unimodality
-    - Requires narrow total range (< 2 * motif_len)
-
-    Returns True if dropout is suspected.
-    """
-    n_total = len(reads_info)
-    if n_total < 10 or motif_len < 1:
-        return False
-
-    # Only flag for large TR loci where heterozygosity is likely
-    if ref_size <= motif_len * 50:
-        return False
-
-    all_sizes = np.array([r.allele_size for r in reads_info])
-    size_range = float(np.max(all_sizes) - np.min(all_sizes))
-
-    # Range must be very narrow (< 2 motif units)
-    if size_range >= 2 * motif_len:
-        return False
-
-    # IQR must also be tight — confirms true unimodality not just outlier-free
-    q1 = float(np.percentile(all_sizes, 25))
-    q3 = float(np.percentile(all_sizes, 75))
-    iqr = q3 - q1
-    if iqr >= motif_len:
-        return False
-
-    return True
-
-
-# ---------------------------------------------------------------------------
 # Per-locus orchestrator
 # ---------------------------------------------------------------------------
 
@@ -238,7 +165,6 @@ def compute_instability(
     motif_len: int,
     min_hp_reads: int = 3,
     min_hp_frac: float = 0.15,
-    noise_threshold: float = 0.45,
 ) -> Optional[dict]:
     """Compute all instability metrics for a single locus.
 
@@ -275,9 +201,9 @@ def compute_instability(
         # Fallback: try gap-based split if bimodal
         all_sizes = np.array([r.allele_size for r in reads_info])
         if _gap_bimodal_test(all_sizes):
-            return _instability_from_gap_split(reads_info, ref_size, motif_len, noise_threshold=noise_threshold)
+            return _instability_from_gap_split(reads_info, ref_size, motif_len)
         # Cannot separate haplotypes — report pooled metrics only
-        return _instability_pooled_fallback(reads_info, ref_size, motif_len, noise_threshold=noise_threshold)
+        return _instability_pooled_fallback(reads_info, ref_size, motif_len)
 
     # Initial HP medians
     hp1_sizes = np.array([r.allele_size for r in hp1_reads])
@@ -303,9 +229,6 @@ def compute_instability(
     med1 = _weighted_median(trim1_sizes, trim1_w)
     med2 = _weighted_median(trim2_sizes, trim2_w)
 
-    # Concordance (computed on original reads, not trimmed)
-    concordance = _hp_concordance(reads_info, med1, med2)
-
     # Per-haplotype metrics (computed on trimmed reads)
     hii_h1 = _hii(trim1_sizes, trim1_w, motif_len)
     hii_h2 = _hii(trim2_sizes, trim2_w, motif_len)
@@ -313,40 +236,22 @@ def compute_instability(
     # Inter-haplotype metrics
     ias_val = _ias(hii_h1, hii_h2)
 
-    # Per-haplotype range (p5-p95) — use trimmed data
-    range_h1 = float(np.percentile(trim1_sizes, 95) - np.percentile(trim1_sizes, 5)) if len(trim1_sizes) >= 2 else 0.0
-    range_h2 = float(np.percentile(trim2_sizes, 95) - np.percentile(trim2_sizes, 5)) if len(trim2_sizes) >= 2 else 0.0
-
-    # Allele dropout detection
-    dropout_flag = _detect_dropout(reads_info, ref_size, motif_len)
-
-    # Trimming statistics
-    n_trimmed_h1 = len(aug1_sizes) - len(trim1_sizes)
-    n_trimmed_h2 = len(aug2_sizes) - len(trim2_sizes)
-
     return {
         "median_h1": med1,
         "median_h2": med2,
         "hii_h1": hii_h1,
         "hii_h2": hii_h2,
         "ias": ias_val,
-        "range_h1": range_h1,
-        "range_h2": range_h2,
         "n_h1": len(aug_hp1),
         "n_h2": len(aug_hp2),
         "n_total": n_total,
-        "concordance": concordance,
         "analysis_path": "hp-tagged",
-        "unstable_haplotype": _determine_unstable_haplotype(hii_h1, hii_h2, noise_threshold),
-        "dropout_flag": dropout_flag,
-        "n_trimmed_h1": n_trimmed_h1,
-        "n_trimmed_h2": n_trimmed_h2,
     }
 
 
 def _instability_from_gap_split(
     reads_info: list[ReadInfo], ref_size: float, motif_len: int,
-    min_cluster_size: int = 3, noise_threshold: float = 0.45,
+    min_cluster_size: int = 3,
 ) -> dict:
     """Compute instability metrics using gap-based bimodal split (no HP tags).
 
@@ -366,7 +271,7 @@ def _instability_from_gap_split(
 
     # Require minimum cluster size to avoid false splits from single outliers
     if len(lo_idx) < min_cluster_size or len(hi_idx) < min_cluster_size:
-        return _instability_pooled_fallback(reads_info, ref_size, motif_len, noise_threshold=noise_threshold)
+        return _instability_pooled_fallback(reads_info, ref_size, motif_len)
 
     lo_sizes = all_sizes[lo_idx]
     lo_w = all_w[lo_idx]
@@ -384,8 +289,6 @@ def _instability_from_gap_split(
     hii_h2 = _hii(trim_hi_sizes, trim_hi_w, motif_len)
 
     n_total = len(reads_info)
-    n_trimmed_h1 = len(lo_sizes) - len(trim_lo_sizes)
-    n_trimmed_h2 = len(hi_sizes) - len(trim_hi_sizes)
 
     return {
         "median_h1": med1,
@@ -393,23 +296,15 @@ def _instability_from_gap_split(
         "hii_h1": hii_h1,
         "hii_h2": hii_h2,
         "ias": _ias(hii_h1, hii_h2),
-        "range_h1": float(np.percentile(trim_lo_sizes, 95) - np.percentile(trim_lo_sizes, 5)) if len(trim_lo_sizes) >= 2 else 0.0,
-        "range_h2": float(np.percentile(trim_hi_sizes, 95) - np.percentile(trim_hi_sizes, 5)) if len(trim_hi_sizes) >= 2 else 0.0,
         "n_h1": len(lo_idx),
         "n_h2": len(hi_idx),
         "n_total": n_total,
-        "concordance": 0.5,  # uncertain without HP tags
         "analysis_path": "gap-split",
-        "unstable_haplotype": _determine_unstable_haplotype(hii_h1, hii_h2, noise_threshold),
-        "dropout_flag": _detect_dropout(reads_info, ref_size, motif_len),
-        "n_trimmed_h1": n_trimmed_h1,
-        "n_trimmed_h2": n_trimmed_h2,
     }
 
 
 def _instability_pooled_fallback(
     reads_info: list[ReadInfo], ref_size: float, motif_len: int,
-    noise_threshold: float = 0.45,
 ) -> dict:
     """Compute instability metrics from pooled reads (no haplotype separation).
 
@@ -421,13 +316,11 @@ def _instability_pooled_fallback(
 
     # Trim outliers
     trim_sizes, trim_w = _trim_outliers_mad(all_sizes, all_w)
-    n_trimmed = len(all_sizes) - len(trim_sizes)
 
     med = _weighted_median(trim_sizes, trim_w)
     n_total = len(reads_info)
 
     hii_val = _hii(trim_sizes, trim_w, motif_len)
-    range_val = float(np.percentile(trim_sizes, 95) - np.percentile(trim_sizes, 5)) if len(trim_sizes) >= 2 else 0.0
 
     return {
         "median_h1": med,
@@ -435,17 +328,10 @@ def _instability_pooled_fallback(
         "hii_h1": hii_val,
         "hii_h2": 0.0,
         "ias": 0.0,
-        "range_h1": range_val,
-        "range_h2": 0.0,
         "n_h1": n_total,
         "n_h2": 0,
         "n_total": n_total,
-        "concordance": 0.0,
         "analysis_path": "pooled",
-        "unstable_haplotype": "h1" if hii_val > noise_threshold else "none",
-        "dropout_flag": _detect_dropout(reads_info, ref_size, motif_len),
-        "n_trimmed_h1": n_trimmed,
-        "n_trimmed_h2": 0,
     }
 
 
@@ -463,7 +349,6 @@ def _instability_chunk(
     min_hp_reads: int = 3,
     min_hp_frac: float = 0.15,
     min_reads: int = 0,
-    noise_threshold: float = 0.45,
 ) -> list[Optional[dict]]:
     """Compute instability for a chunk of loci (runs in a worker process)."""
     import pysam
@@ -490,7 +375,6 @@ def _instability_chunk(
                 reads, ref_size, motif_len,
                 min_hp_reads=min_hp_reads,
                 min_hp_frac=min_hp_frac,
-                noise_threshold=noise_threshold,
             )
             results.append(result)
     finally:
@@ -509,10 +393,8 @@ _TSV_HEADER = (
     "median_h1\tmedian_h2\t"
     "hii_h1\thii_h2\t"
     "ias\t"
-    "range_h1\trange_h2\t"
-    "n_h1\tn_h2\tn_total\tconcordance\t"
-    "analysis_path\tunstable_haplotype\tdropout_flag\t"
-    "n_trimmed_h1\tn_trimmed_h2\n"
+    "n_h1\tn_h2\tn_total\t"
+    "analysis_path\n"
 )
 
 
@@ -522,7 +404,7 @@ def _write_instability_tsv(
     results: list[Optional[dict]],
     min_hii: float = 0.0,
 ) -> int:
-    """Write instability results to 20-column TSV.
+    """Write instability results to 13-column TSV.
 
     Args:
         output_path: Output file path.
@@ -552,7 +434,7 @@ def _write_instability_tsv(
                 if min_hii <= 0:
                     f.write(
                         f"{chrom}\t{start}\t{end}\t{motif}\t"
-                        ".\t.\t.\t.\t.\t.\t.\t0\t0\t0\t0\tfailed\t.\t0\t0\t0\n"
+                        ".\t.\t.\t.\t.\t0\t0\t0\tfailed\n"
                     )
                     n_written += 1
                 continue
@@ -566,12 +448,9 @@ def _write_instability_tsv(
                 f"{_fmt(result['median_h1'])}\t{_fmt(result['median_h2'])}\t"
                 f"{_fmt(result['hii_h1'])}\t{_fmt(result['hii_h2'])}\t"
                 f"{_fmt(result['ias'])}\t"
-                f"{_fmt(result['range_h1'])}\t{_fmt(result['range_h2'])}\t"
                 f"{result['n_h1']}\t{result['n_h2']}\t"
-                f"{result['n_total']}\t{_fmt(result['concordance'])}\t"
-                f"{result['analysis_path']}\t{result['unstable_haplotype']}\t"
-                f"{1 if result['dropout_flag'] else 0}\t"
-                f"{result.get('n_trimmed_h1', 0)}\t{result.get('n_trimmed_h2', 0)}\n"
+                f"{result['n_total']}\t"
+                f"{result['analysis_path']}\n"
             )
             n_written += 1
 
@@ -596,7 +475,6 @@ def run_instability(
     min_hp_frac: float = 0.15,
     min_instability: float = 0.0,
     min_reads: int = 0,
-    noise_threshold: float = 0.45,
     skip_hp_check: bool = False,
 ) -> str:
     """Run MosaicTR somatic instability analysis on a set of TR loci.
@@ -617,7 +495,6 @@ def run_instability(
         min_hp_frac: Minimum fraction of HP-tagged reads.
         min_instability: Minimum HII threshold for output (0 = no filter).
         min_reads: Minimum total reads per locus (0 = no filter).
-        noise_threshold: HII threshold for unstable_haplotype labeling.
         skip_hp_check: Skip HP tag pre-flight check (for non-HP BAMs).
 
     Returns:
@@ -655,7 +532,6 @@ def run_instability(
         min_hp_reads=min_hp_reads,
         min_hp_frac=min_hp_frac,
         min_reads=min_reads,
-        noise_threshold=noise_threshold,
     )
 
     t0 = time.time()
@@ -753,14 +629,6 @@ def run_instability(
                 "Use: whatshap haplotag / hiphase / longphase haplotag",
                 hp_pct,
             )
-
-    n_dropout = sum(1 for r in all_results if r is not None and r.get("dropout_flag"))
-    if n_dropout > 0:
-        logger.warning(
-            "%d loci flagged for possible allele dropout (dropout_flag=1). "
-            "Large expansions may be missing from sequencing data.",
-            n_dropout,
-        )
 
     n_written = _write_instability_tsv(
         output_path, all_loci, all_results, min_hii=min_instability,

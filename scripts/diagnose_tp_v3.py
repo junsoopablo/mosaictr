@@ -11,8 +11,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.benchmark import LocusPrediction, LocusTruth, load_predictions
-from haplotr.utils import load_adotto_catalog, load_tier1_bed, match_tier1_to_catalog
+from mosaictr.benchmark import LocusPrediction, LocusTruth, load_predictions
+from mosaictr.utils import load_adotto_catalog, load_tier1_bed, match_tier1_to_catalog
 
 
 def _match_preds_to_truth(preds, tier1_loci, catalog):

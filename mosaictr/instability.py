@@ -1,21 +1,18 @@
-"""HaploTR somatic instability module.
+"""MosaicTR somatic instability module.
 
 Haplotype-resolved somatic TR instability metrics from HP-tagged long-read BAMs.
 Provides per-haplotype instability decomposition that no existing tool offers:
 
 Metrics:
 - HII (Haplotype Instability Index): motif-normalized dispersion per haplotype
-- SER (Somatic Expansion Ratio): fraction of reads expanded >1 motif unit
-- SCR (Somatic Contraction Ratio): fraction of reads contracted >1 motif unit
-- ECB (Expansion-Contraction Bias): directional bias [-1, +1]
 - IAS (Instability Asymmetry Score): inter-haplotype instability difference
-- AIS (Aggregate Instability Score): confidence-weighted summary score
 """
 
 from __future__ import annotations
 
 import gc
 import logging
+import math
 import time
 from typing import Optional
 
@@ -101,6 +98,31 @@ def _weighted_mad(
     return _weighted_median(deviations, weights)
 
 
+def _trim_outliers_mad(
+    sizes: np.ndarray, weights: np.ndarray, mad_factor: float = 3.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Remove outlier reads using MAD-based trimming.
+
+    Removes reads further than mad_factor * MAD from the weighted median.
+    This handles misphased reads that corrupt per-haplotype metrics
+    (e.g., 10 normal reads mixed into the expanded haplotype cluster).
+
+    Returns trimmed (sizes, weights) arrays. If trimming would leave
+    fewer than 3 reads, returns the original arrays unchanged.
+    """
+    if len(sizes) < 4:
+        return sizes, weights
+    center = _weighted_median(sizes, weights)
+    mad = _weighted_mad(sizes, weights, center)
+    if mad < _EPS:
+        return sizes, weights
+    threshold = mad_factor * mad
+    mask = np.abs(sizes - center) <= threshold
+    if mask.sum() < 3:
+        return sizes, weights
+    return sizes[mask], weights[mask]
+
+
 # ---------------------------------------------------------------------------
 # Per-haplotype metrics
 # ---------------------------------------------------------------------------
@@ -116,51 +138,6 @@ def _hii(sizes: np.ndarray, weights: np.ndarray, motif_len: int) -> float:
     center = _weighted_median(sizes, weights)
     mad = _weighted_mad(sizes, weights, center)
     return mad / motif_len
-
-
-def _ser(sizes: np.ndarray, median: float, motif_len: int) -> float:
-    """Somatic Expansion Ratio: fraction of reads expanded >1 motif unit.
-
-    Validated biomarker for HD (Nature Medicine 2025).
-    Per-haplotype SER isolates the pathogenic allele signal.
-
-    For mononucleotide repeats (motif_len=1), uses min 2bp threshold
-    to avoid false positives from HiFi sequencing noise (±1bp stutter).
-    """
-    n = len(sizes)
-    if n == 0 or motif_len < 1:
-        return 0.0
-    threshold_bp = max(motif_len, 2)  # min 2bp to avoid noise for mononucleotides
-    threshold = median + threshold_bp
-    return float(np.sum(sizes > threshold)) / n
-
-
-def _scr(sizes: np.ndarray, median: float, motif_len: int) -> float:
-    """Somatic Contraction Ratio: fraction of reads contracted >1 motif unit.
-
-    Mirror of SER. Important for MSI-H cancer, therapeutic monitoring.
-
-    For mononucleotide repeats (motif_len=1), uses min 2bp threshold
-    to avoid false positives from HiFi sequencing noise (±1bp stutter).
-    """
-    n = len(sizes)
-    if n == 0 or motif_len < 1:
-        return 0.0
-    threshold_bp = max(motif_len, 2)  # min 2bp to avoid noise for mononucleotides
-    threshold = median - threshold_bp
-    return float(np.sum(sizes < threshold)) / n
-
-
-def _ecb(ser_val: float, scr_val: float) -> float:
-    """Expansion-Contraction Bias: (SER - SCR) / max(SER + SCR, eps).
-
-    Range [-1, +1]. Positive = expansion bias (HD, DM1).
-    Negative = contraction bias.
-    """
-    denom = ser_val + scr_val
-    if denom < _EPS:
-        return 0.0
-    return (ser_val - scr_val) / denom
 
 
 # ---------------------------------------------------------------------------
@@ -179,19 +156,30 @@ def _ias(hii_1: float, hii_2: float) -> float:
     return abs(hii_1 - hii_2) / max_hii
 
 
-def _ais(
-    hii_1: float, hii_2: float, concordance: float, n_total: int,
-    ref_n: int = 20,
-) -> float:
-    """Aggregate Instability Score: max(HII) * concordance * coverage_factor.
+# ---------------------------------------------------------------------------
+# Unstable haplotype determination
+# ---------------------------------------------------------------------------
 
-    Single sortable score for genome-wide ranking.
-    Confidence-weighted via existing HP concordance.
-    Coverage factor saturates at 1.0 for n >= ref_n.
+def _determine_unstable_haplotype(
+    hii_h1: float, hii_h2: float, noise_threshold: float = 0.45,
+) -> str:
+    """Determine which haplotype(s) show somatic instability above noise.
+
+    Uses the genome-wide 3σ noise floor threshold (default 0.45) to avoid
+    labeling normal variation as 'unstable'.
+
+    Returns:
+        'h1', 'h2', 'both', or 'none'.
     """
-    max_hii = max(hii_1, hii_2)
-    cov_factor = min(1.0, n_total / ref_n) if ref_n > 0 else 1.0
-    return max_hii * max(concordance, _EPS) * cov_factor
+    h1_unstable = hii_h1 > noise_threshold
+    h2_unstable = hii_h2 > noise_threshold
+    if h1_unstable and h2_unstable:
+        return "both"
+    if h1_unstable:
+        return "h1"
+    if h2_unstable:
+        return "h2"
+    return "none"
 
 
 # ---------------------------------------------------------------------------
@@ -208,16 +196,36 @@ def _detect_dropout(
     This can indicate that one allele (typically the expanded pathogenic
     allele) was lost during library prep or sequencing.
 
+    Stricter criteria than v1 to reduce false positives:
+    - Requires large reference size (>50 motif units) to be meaningful
+    - Requires tight IQR (< motif_len) indicating true unimodality
+    - Requires narrow total range (< 2 * motif_len)
+
     Returns True if dropout is suspected.
     """
     n_total = len(reads_info)
     if n_total < 10 or motif_len < 1:
         return False
-    all_sizes = [r.allele_size for r in reads_info]
-    size_range = max(all_sizes) - min(all_sizes)
-    if size_range < motif_len and ref_size > motif_len * 10:
-        return True
-    return False
+
+    # Only flag for large TR loci where heterozygosity is likely
+    if ref_size <= motif_len * 50:
+        return False
+
+    all_sizes = np.array([r.allele_size for r in reads_info])
+    size_range = float(np.max(all_sizes) - np.min(all_sizes))
+
+    # Range must be very narrow (< 2 motif units)
+    if size_range >= 2 * motif_len:
+        return False
+
+    # IQR must also be tight — confirms true unimodality not just outlier-free
+    q1 = float(np.percentile(all_sizes, 25))
+    q3 = float(np.percentile(all_sizes, 75))
+    iqr = q3 - q1
+    if iqr >= motif_len:
+        return False
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -230,6 +238,7 @@ def compute_instability(
     motif_len: int,
     min_hp_reads: int = 3,
     min_hp_frac: float = 0.15,
+    noise_threshold: float = 0.45,
 ) -> Optional[dict]:
     """Compute all instability metrics for a single locus.
 
@@ -266,9 +275,9 @@ def compute_instability(
         # Fallback: try gap-based split if bimodal
         all_sizes = np.array([r.allele_size for r in reads_info])
         if _gap_bimodal_test(all_sizes):
-            return _instability_from_gap_split(reads_info, ref_size, motif_len)
+            return _instability_from_gap_split(reads_info, ref_size, motif_len, noise_threshold=noise_threshold)
         # Cannot separate haplotypes — report pooled metrics only
-        return _instability_pooled_fallback(reads_info, ref_size, motif_len)
+        return _instability_pooled_fallback(reads_info, ref_size, motif_len, noise_threshold=noise_threshold)
 
     # Initial HP medians
     hp1_sizes = np.array([r.allele_size for r in hp1_reads])
@@ -287,49 +296,40 @@ def compute_instability(
     aug2_sizes = np.array([r.allele_size for r in aug_hp2])
     aug2_w = np.maximum(np.array([r.mapq for r in aug_hp2], dtype=float), 1.0)
 
-    med1 = _weighted_median(aug1_sizes, aug1_w)
-    med2 = _weighted_median(aug2_sizes, aug2_w)
+    # Trim outliers (handles misphased reads corrupting haplotype clusters)
+    trim1_sizes, trim1_w = _trim_outliers_mad(aug1_sizes, aug1_w)
+    trim2_sizes, trim2_w = _trim_outliers_mad(aug2_sizes, aug2_w)
 
-    # Concordance
+    med1 = _weighted_median(trim1_sizes, trim1_w)
+    med2 = _weighted_median(trim2_sizes, trim2_w)
+
+    # Concordance (computed on original reads, not trimmed)
     concordance = _hp_concordance(reads_info, med1, med2)
 
-    # Per-haplotype metrics
-    hii_h1 = _hii(aug1_sizes, aug1_w, motif_len)
-    hii_h2 = _hii(aug2_sizes, aug2_w, motif_len)
-
-    ser_h1 = _ser(aug1_sizes, med1, motif_len)
-    ser_h2 = _ser(aug2_sizes, med2, motif_len)
-
-    scr_h1 = _scr(aug1_sizes, med1, motif_len)
-    scr_h2 = _scr(aug2_sizes, med2, motif_len)
-
-    ecb_h1 = _ecb(ser_h1, scr_h1)
-    ecb_h2 = _ecb(ser_h2, scr_h2)
+    # Per-haplotype metrics (computed on trimmed reads)
+    hii_h1 = _hii(trim1_sizes, trim1_w, motif_len)
+    hii_h2 = _hii(trim2_sizes, trim2_w, motif_len)
 
     # Inter-haplotype metrics
     ias_val = _ias(hii_h1, hii_h2)
-    ais_val = _ais(hii_h1, hii_h2, concordance, n_total)
 
-    # Per-haplotype range (p5-p95)
-    range_h1 = float(np.percentile(aug1_sizes, 95) - np.percentile(aug1_sizes, 5)) if len(aug1_sizes) >= 2 else 0.0
-    range_h2 = float(np.percentile(aug2_sizes, 95) - np.percentile(aug2_sizes, 5)) if len(aug2_sizes) >= 2 else 0.0
+    # Per-haplotype range (p5-p95) — use trimmed data
+    range_h1 = float(np.percentile(trim1_sizes, 95) - np.percentile(trim1_sizes, 5)) if len(trim1_sizes) >= 2 else 0.0
+    range_h2 = float(np.percentile(trim2_sizes, 95) - np.percentile(trim2_sizes, 5)) if len(trim2_sizes) >= 2 else 0.0
 
     # Allele dropout detection
     dropout_flag = _detect_dropout(reads_info, ref_size, motif_len)
 
+    # Trimming statistics
+    n_trimmed_h1 = len(aug1_sizes) - len(trim1_sizes)
+    n_trimmed_h2 = len(aug2_sizes) - len(trim2_sizes)
+
     return {
-        "modal_h1": med1,
-        "modal_h2": med2,
+        "median_h1": med1,
+        "median_h2": med2,
         "hii_h1": hii_h1,
         "hii_h2": hii_h2,
-        "ser_h1": ser_h1,
-        "ser_h2": ser_h2,
-        "scr_h1": scr_h1,
-        "scr_h2": scr_h2,
-        "ecb_h1": ecb_h1,
-        "ecb_h2": ecb_h2,
         "ias": ias_val,
-        "ais": ais_val,
         "range_h1": range_h1,
         "range_h2": range_h2,
         "n_h1": len(aug_hp1),
@@ -337,17 +337,21 @@ def compute_instability(
         "n_total": n_total,
         "concordance": concordance,
         "analysis_path": "hp-tagged",
-        "unstable_haplotype": "h1" if hii_h1 > hii_h2 else ("h2" if hii_h2 > hii_h1 else "none"),
+        "unstable_haplotype": _determine_unstable_haplotype(hii_h1, hii_h2, noise_threshold),
         "dropout_flag": dropout_flag,
+        "n_trimmed_h1": n_trimmed_h1,
+        "n_trimmed_h2": n_trimmed_h2,
     }
 
 
 def _instability_from_gap_split(
     reads_info: list[ReadInfo], ref_size: float, motif_len: int,
+    min_cluster_size: int = 3, noise_threshold: float = 0.45,
 ) -> dict:
     """Compute instability metrics using gap-based bimodal split (no HP tags).
 
     Used when HP tags are insufficient but reads show bimodal distribution.
+    Falls back to pooled if either cluster has fewer than min_cluster_size reads.
     """
     all_sizes = np.array([r.allele_size for r in reads_info])
     all_w = np.maximum(np.array([r.mapq for r in reads_info], dtype=float), 1.0)
@@ -360,46 +364,52 @@ def _instability_from_gap_split(
     lo_idx = sorted_idx[:split_pos]
     hi_idx = sorted_idx[split_pos:]
 
+    # Require minimum cluster size to avoid false splits from single outliers
+    if len(lo_idx) < min_cluster_size or len(hi_idx) < min_cluster_size:
+        return _instability_pooled_fallback(reads_info, ref_size, motif_len, noise_threshold=noise_threshold)
+
     lo_sizes = all_sizes[lo_idx]
     lo_w = all_w[lo_idx]
     hi_sizes = all_sizes[hi_idx]
     hi_w = all_w[hi_idx]
 
-    med1 = _weighted_median(lo_sizes, lo_w)
-    med2 = _weighted_median(hi_sizes, hi_w)
+    # Trim outliers within each cluster
+    trim_lo_sizes, trim_lo_w = _trim_outliers_mad(lo_sizes, lo_w)
+    trim_hi_sizes, trim_hi_w = _trim_outliers_mad(hi_sizes, hi_w)
 
-    hii_h1 = _hii(lo_sizes, lo_w, motif_len)
-    hii_h2 = _hii(hi_sizes, hi_w, motif_len)
+    med1 = _weighted_median(trim_lo_sizes, trim_lo_w)
+    med2 = _weighted_median(trim_hi_sizes, trim_hi_w)
+
+    hii_h1 = _hii(trim_lo_sizes, trim_lo_w, motif_len)
+    hii_h2 = _hii(trim_hi_sizes, trim_hi_w, motif_len)
 
     n_total = len(reads_info)
+    n_trimmed_h1 = len(lo_sizes) - len(trim_lo_sizes)
+    n_trimmed_h2 = len(hi_sizes) - len(trim_hi_sizes)
 
     return {
-        "modal_h1": med1,
-        "modal_h2": med2,
+        "median_h1": med1,
+        "median_h2": med2,
         "hii_h1": hii_h1,
         "hii_h2": hii_h2,
-        "ser_h1": _ser(lo_sizes, med1, motif_len),
-        "ser_h2": _ser(hi_sizes, med2, motif_len),
-        "scr_h1": _scr(lo_sizes, med1, motif_len),
-        "scr_h2": _scr(hi_sizes, med2, motif_len),
-        "ecb_h1": _ecb(_ser(lo_sizes, med1, motif_len), _scr(lo_sizes, med1, motif_len)),
-        "ecb_h2": _ecb(_ser(hi_sizes, med2, motif_len), _scr(hi_sizes, med2, motif_len)),
         "ias": _ias(hii_h1, hii_h2),
-        "ais": _ais(hii_h1, hii_h2, 0.5, n_total),  # low confidence without HP
-        "range_h1": float(np.percentile(lo_sizes, 95) - np.percentile(lo_sizes, 5)) if len(lo_sizes) >= 2 else 0.0,
-        "range_h2": float(np.percentile(hi_sizes, 95) - np.percentile(hi_sizes, 5)) if len(hi_sizes) >= 2 else 0.0,
+        "range_h1": float(np.percentile(trim_lo_sizes, 95) - np.percentile(trim_lo_sizes, 5)) if len(trim_lo_sizes) >= 2 else 0.0,
+        "range_h2": float(np.percentile(trim_hi_sizes, 95) - np.percentile(trim_hi_sizes, 5)) if len(trim_hi_sizes) >= 2 else 0.0,
         "n_h1": len(lo_idx),
         "n_h2": len(hi_idx),
         "n_total": n_total,
         "concordance": 0.5,  # uncertain without HP tags
         "analysis_path": "gap-split",
-        "unstable_haplotype": "h1" if hii_h1 > hii_h2 else ("h2" if hii_h2 > hii_h1 else "none"),
+        "unstable_haplotype": _determine_unstable_haplotype(hii_h1, hii_h2, noise_threshold),
         "dropout_flag": _detect_dropout(reads_info, ref_size, motif_len),
+        "n_trimmed_h1": n_trimmed_h1,
+        "n_trimmed_h2": n_trimmed_h2,
     }
 
 
 def _instability_pooled_fallback(
     reads_info: list[ReadInfo], ref_size: float, motif_len: int,
+    noise_threshold: float = 0.45,
 ) -> dict:
     """Compute instability metrics from pooled reads (no haplotype separation).
 
@@ -409,28 +419,22 @@ def _instability_pooled_fallback(
     all_sizes = np.array([r.allele_size for r in reads_info])
     all_w = np.maximum(np.array([r.mapq for r in reads_info], dtype=float), 1.0)
 
-    med = _weighted_median(all_sizes, all_w)
+    # Trim outliers
+    trim_sizes, trim_w = _trim_outliers_mad(all_sizes, all_w)
+    n_trimmed = len(all_sizes) - len(trim_sizes)
+
+    med = _weighted_median(trim_sizes, trim_w)
     n_total = len(reads_info)
 
-    hii_val = _hii(all_sizes, all_w, motif_len)
-    ser_val = _ser(all_sizes, med, motif_len)
-    scr_val = _scr(all_sizes, med, motif_len)
-    ecb_val = _ecb(ser_val, scr_val)
-    range_val = float(np.percentile(all_sizes, 95) - np.percentile(all_sizes, 5)) if len(all_sizes) >= 2 else 0.0
+    hii_val = _hii(trim_sizes, trim_w, motif_len)
+    range_val = float(np.percentile(trim_sizes, 95) - np.percentile(trim_sizes, 5)) if len(trim_sizes) >= 2 else 0.0
 
     return {
-        "modal_h1": med,
-        "modal_h2": med,
+        "median_h1": med,
+        "median_h2": med,
         "hii_h1": hii_val,
         "hii_h2": 0.0,
-        "ser_h1": ser_val,
-        "ser_h2": 0.0,
-        "scr_h1": scr_val,
-        "scr_h2": 0.0,
-        "ecb_h1": ecb_val,
-        "ecb_h2": 0.0,
         "ias": 0.0,
-        "ais": 0.0,  # no confidence without haplotype separation
         "range_h1": range_val,
         "range_h2": 0.0,
         "n_h1": n_total,
@@ -438,8 +442,10 @@ def _instability_pooled_fallback(
         "n_total": n_total,
         "concordance": 0.0,
         "analysis_path": "pooled",
-        "unstable_haplotype": "h1",  # only haplotype in pooled mode
+        "unstable_haplotype": "h1" if hii_val > noise_threshold else "none",
         "dropout_flag": _detect_dropout(reads_info, ref_size, motif_len),
+        "n_trimmed_h1": n_trimmed,
+        "n_trimmed_h2": 0,
     }
 
 
@@ -456,6 +462,8 @@ def _instability_chunk(
     ref_path: Optional[str] = None,
     min_hp_reads: int = 3,
     min_hp_frac: float = 0.15,
+    min_reads: int = 0,
+    noise_threshold: float = 0.45,
 ) -> list[Optional[dict]]:
     """Compute instability for a chunk of loci (runs in a worker process)."""
     import pysam
@@ -464,29 +472,31 @@ def _instability_chunk(
     ref_fasta = pysam.FastaFile(ref_path) if ref_path else None
     results = []
 
-    for chrom, start, end, motif in loci_chunk:
-        ref_size = end - start
-        motif_len = len(motif)
+    try:
+        for chrom, start, end, motif in loci_chunk:
+            ref_size = end - start
+            motif_len = len(motif)
 
-        reads = extract_reads_enhanced(
-            bam, chrom, start, end,
-            min_mapq=min_mapq, min_flank=min_flank, max_reads=max_reads,
-            ref_fasta=ref_fasta, motif_len=motif_len,
-        )
-        if not reads:
-            results.append(None)
-            continue
+            reads = extract_reads_enhanced(
+                bam, chrom, start, end,
+                min_mapq=min_mapq, min_flank=min_flank, max_reads=max_reads,
+                ref_fasta=ref_fasta, motif_len=motif_len,
+            )
+            if not reads or len(reads) < min_reads:
+                results.append(None)
+                continue
 
-        result = compute_instability(
-            reads, ref_size, motif_len,
-            min_hp_reads=min_hp_reads,
-            min_hp_frac=min_hp_frac,
-        )
-        results.append(result)
-
-    bam.close()
-    if ref_fasta:
-        ref_fasta.close()
+            result = compute_instability(
+                reads, ref_size, motif_len,
+                min_hp_reads=min_hp_reads,
+                min_hp_frac=min_hp_frac,
+                noise_threshold=noise_threshold,
+            )
+            results.append(result)
+    finally:
+        bam.close()
+        if ref_fasta:
+            ref_fasta.close()
     return results
 
 
@@ -496,15 +506,13 @@ def _instability_chunk(
 
 _TSV_HEADER = (
     "#chrom\tstart\tend\tmotif\t"
-    "modal_h1\tmodal_h2\t"
+    "median_h1\tmedian_h2\t"
     "hii_h1\thii_h2\t"
-    "ser_h1\tser_h2\t"
-    "scr_h1\tscr_h2\t"
-    "ecb_h1\tecb_h2\t"
-    "ias\tais\t"
+    "ias\t"
     "range_h1\trange_h2\t"
     "n_h1\tn_h2\tn_total\tconcordance\t"
-    "analysis_path\tunstable_haplotype\tdropout_flag\n"
+    "analysis_path\tunstable_haplotype\tdropout_flag\t"
+    "n_trimmed_h1\tn_trimmed_h2\n"
 )
 
 
@@ -512,15 +520,15 @@ def _write_instability_tsv(
     output_path: str,
     loci: list[tuple[str, int, int, str]],
     results: list[Optional[dict]],
-    min_ais: float = 0.0,
+    min_hii: float = 0.0,
 ) -> int:
-    """Write instability results to 25-column TSV.
+    """Write instability results to 20-column TSV.
 
     Args:
         output_path: Output file path.
         loci: List of (chrom, start, end, motif) tuples.
         results: List of result dicts (or None for failed loci).
-        min_ais: Minimum AIS threshold for output filtering.
+        min_hii: Minimum max(HII) threshold for output filtering.
 
     Returns:
         Number of loci written.
@@ -529,6 +537,8 @@ def _write_instability_tsv(
 
     def _fmt(val):
         if isinstance(val, float):
+            if math.isnan(val) or math.isinf(val):
+                return "."
             if val == int(val) and abs(val) < 1e12:
                 return str(int(val))
             return f"{val:.4f}"
@@ -539,30 +549,29 @@ def _write_instability_tsv(
         for locus, result in zip(loci, results):
             chrom, start, end, motif = locus
             if result is None:
-                if min_ais <= 0:
+                if min_hii <= 0:
                     f.write(
                         f"{chrom}\t{start}\t{end}\t{motif}\t"
-                        ".\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t.\t0\t0\t0\t0\tfailed\t.\t0\n"
+                        ".\t.\t.\t.\t.\t.\t.\t0\t0\t0\t0\tfailed\t.\t0\t0\t0\n"
                     )
                     n_written += 1
                 continue
 
-            if result["ais"] < min_ais:
+            max_hii = max(result.get("hii_h1", 0.0), result.get("hii_h2", 0.0))
+            if max_hii < min_hii:
                 continue
 
             f.write(
                 f"{chrom}\t{start}\t{end}\t{motif}\t"
-                f"{_fmt(result['modal_h1'])}\t{_fmt(result['modal_h2'])}\t"
+                f"{_fmt(result['median_h1'])}\t{_fmt(result['median_h2'])}\t"
                 f"{_fmt(result['hii_h1'])}\t{_fmt(result['hii_h2'])}\t"
-                f"{_fmt(result['ser_h1'])}\t{_fmt(result['ser_h2'])}\t"
-                f"{_fmt(result['scr_h1'])}\t{_fmt(result['scr_h2'])}\t"
-                f"{_fmt(result['ecb_h1'])}\t{_fmt(result['ecb_h2'])}\t"
-                f"{_fmt(result['ias'])}\t{_fmt(result['ais'])}\t"
+                f"{_fmt(result['ias'])}\t"
                 f"{_fmt(result['range_h1'])}\t{_fmt(result['range_h2'])}\t"
                 f"{result['n_h1']}\t{result['n_h2']}\t"
                 f"{result['n_total']}\t{_fmt(result['concordance'])}\t"
                 f"{result['analysis_path']}\t{result['unstable_haplotype']}\t"
-                f"{1 if result['dropout_flag'] else 0}\n"
+                f"{1 if result['dropout_flag'] else 0}\t"
+                f"{result.get('n_trimmed_h1', 0)}\t{result.get('n_trimmed_h2', 0)}\n"
             )
             n_written += 1
 
@@ -586,9 +595,11 @@ def run_instability(
     min_hp_reads: int = 3,
     min_hp_frac: float = 0.15,
     min_instability: float = 0.0,
+    min_reads: int = 0,
+    noise_threshold: float = 0.45,
     skip_hp_check: bool = False,
 ) -> str:
-    """Run HaploTR somatic instability analysis on a set of TR loci.
+    """Run MosaicTR somatic instability analysis on a set of TR loci.
 
     Pipeline: BAM + loci BED -> per-chromosome instability -> TSV output
 
@@ -604,7 +615,9 @@ def run_instability(
         ref_path: Reference FASTA for parasail realignment (optional).
         min_hp_reads: Minimum HP-tagged reads per haplotype.
         min_hp_frac: Minimum fraction of HP-tagged reads.
-        min_instability: Minimum AIS threshold for output (0 = no filter).
+        min_instability: Minimum HII threshold for output (0 = no filter).
+        min_reads: Minimum total reads per locus (0 = no filter).
+        noise_threshold: HII threshold for unstable_haplotype labeling.
         skip_hp_check: Skip HP tag pre-flight check (for non-HP BAMs).
 
     Returns:
@@ -641,6 +654,8 @@ def run_instability(
         ref_path=ref_path,
         min_hp_reads=min_hp_reads,
         min_hp_frac=min_hp_frac,
+        min_reads=min_reads,
+        noise_threshold=noise_threshold,
     )
 
     t0 = time.time()
@@ -748,10 +763,10 @@ def run_instability(
         )
 
     n_written = _write_instability_tsv(
-        output_path, all_loci, all_results, min_ais=min_instability,
+        output_path, all_loci, all_results, min_hii=min_instability,
     )
     logger.info(
-        "Output written to %s (%d loci, min_ais=%.2f)",
+        "Output written to %s (%d loci, min_hii=%.2f)",
         output_path, n_written, min_instability,
     )
     return output_path

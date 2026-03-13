@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run genome-wide HaploTR genotyping for HG002/HG003/HG004 trio.
+# Run genome-wide MosaicTR genotyping for HG002/HG003/HG004 trio.
 #
 # Run HG002 first (can start immediately), then HG003/HG004 after downloads complete.
 # Each takes ~5-7 hours with nprocs=1.
@@ -26,7 +26,7 @@ run_sample() {
     local output=$3
 
     echo "============================================"
-    echo "  Running HaploTR genome-wide: $sample"
+    echo "  Running MosaicTR genome-wide: $sample"
     echo "  BAM: $bam"
     echo "  Output: $output"
     echo "============================================"
@@ -43,7 +43,7 @@ run_sample() {
     fi
 
     time python -c "
-from haplotr.genotype import genotype
+from mosaictr.genotype import genotype
 genotype(
     bam_path='$bam',
     loci_bed_path='$CATALOG',

@@ -1,4 +1,4 @@
-"""HaploTR genotyping pipeline.
+"""MosaicTR genotyping pipeline.
 
 Haplotype-aware tandem repeat genotyping from long-read sequencing.
 Uses HP (haplotype) tags from phased BAM files to separate alleles,
@@ -247,7 +247,8 @@ def extract_reads_enhanced(
             continue
 
         allele_size = None
-        if ref_fasta is not None:
+        if ref_fasta is not None and motif_len < 7:
+            # Parasail realignment only for STRs; net-negative for VNTRs
             allele_size = _realign_allele_size(
                 aln, start, end, ref_fasta, motif_len,
             )
@@ -346,27 +347,54 @@ def _hp_concordance(
 
 def _assign_hp0_reads(
     reads_info: list[ReadInfo], med1: float, med2: float,
+    n_iterations: int = 2,
 ) -> tuple[list[ReadInfo], list[ReadInfo]]:
-    """Assign HP=0 reads to the closer haplotype cluster.
+    """Assign HP=0 reads to the closer haplotype cluster with EM refinement.
+
+    Iteratively assigns HP=0 reads to nearest cluster, then recomputes
+    cluster medians to refine assignments. Converges in 2-3 iterations.
 
     Returns augmented (hp1_reads, hp2_reads) including assigned HP=0 reads.
     Ties go to the smaller group for balance.
     """
-    hp1 = [r for r in reads_info if r.hp == 1]
-    hp2 = [r for r in reads_info if r.hp == 2]
+    hp1_tagged = [r for r in reads_info if r.hp == 1]
+    hp2_tagged = [r for r in reads_info if r.hp == 2]
     hp0 = [r for r in reads_info if r.hp == 0]
-    for r in hp0:
-        dist1 = abs(r.allele_size - med1)
-        dist2 = abs(r.allele_size - med2)
-        if dist1 < dist2:
-            hp1.append(r)
-        elif dist2 < dist1:
-            hp2.append(r)
-        else:
-            if len(hp1) <= len(hp2):
+
+    if not hp0:
+        return list(hp1_tagged), list(hp2_tagged)
+
+    cur_med1, cur_med2 = med1, med2
+
+    for _iter in range(max(1, n_iterations)):
+        hp1 = list(hp1_tagged)
+        hp2 = list(hp2_tagged)
+        for r in hp0:
+            dist1 = abs(r.allele_size - cur_med1)
+            dist2 = abs(r.allele_size - cur_med2)
+            if dist1 < dist2:
                 hp1.append(r)
-            else:
+            elif dist2 < dist1:
                 hp2.append(r)
+            else:
+                if len(hp1) <= len(hp2):
+                    hp1.append(r)
+                else:
+                    hp2.append(r)
+
+        # Recompute medians for next iteration
+        if _iter < n_iterations - 1 and hp1 and hp2:
+            s1 = np.array([r.allele_size for r in hp1])
+            w1 = np.maximum(np.array([r.mapq for r in hp1], dtype=float), 1.0)
+            s2 = np.array([r.allele_size for r in hp2])
+            w2 = np.maximum(np.array([r.mapq for r in hp2], dtype=float), 1.0)
+            new_med1 = _weighted_median(s1, w1)
+            new_med2 = _weighted_median(s2, w2)
+            # Early exit if converged
+            if abs(new_med1 - cur_med1) < 0.1 and abs(new_med2 - cur_med2) < 0.1:
+                break
+            cur_med1, cur_med2 = new_med1, new_med2
+
     return hp1, hp2
 
 
@@ -750,38 +778,39 @@ def _genotype_chunk(
     ref_fasta = pysam.FastaFile(ref_path) if ref_path else None
     results = []
 
-    for chrom, start, end, motif in loci_chunk:
-        ref_size = end - start
-        motif_len = len(motif)
+    try:
+        for chrom, start, end, motif in loci_chunk:
+            ref_size = end - start
+            motif_len = len(motif)
 
-        reads = extract_reads_enhanced(
-            bam, chrom, start, end,
-            min_mapq=min_mapq, min_flank=min_flank, max_reads=max_reads,
-            ref_fasta=ref_fasta, motif_len=motif_len,
-        )
-        if not reads:
-            results.append(None)
-            continue
-        d1, d2, zygosity, confidence = hp_cond_v4_genotype(
-            reads, ref_size, motif_len,
-            vntr_motif_cutoff=vntr_motif_cutoff,
-            min_hp_reads=min_hp_reads,
-            min_hp_frac=min_hp_frac,
-            concordance_threshold=concordance_threshold,
-        )
-        allele1_size = ref_size - d1
-        allele2_size = ref_size - d2
-        results.append({
-            "allele1_size": allele1_size,
-            "allele2_size": allele2_size,
-            "zygosity": zygosity,
-            "n_reads": len(reads),
-            "confidence": confidence,
-        })
-
-    bam.close()
-    if ref_fasta:
-        ref_fasta.close()
+            reads = extract_reads_enhanced(
+                bam, chrom, start, end,
+                min_mapq=min_mapq, min_flank=min_flank, max_reads=max_reads,
+                ref_fasta=ref_fasta, motif_len=motif_len,
+            )
+            if not reads:
+                results.append(None)
+                continue
+            d1, d2, zygosity, confidence = hp_cond_v4_genotype(
+                reads, ref_size, motif_len,
+                vntr_motif_cutoff=vntr_motif_cutoff,
+                min_hp_reads=min_hp_reads,
+                min_hp_frac=min_hp_frac,
+                concordance_threshold=concordance_threshold,
+            )
+            allele1_size = ref_size - d1
+            allele2_size = ref_size - d2
+            results.append({
+                "allele1_size": allele1_size,
+                "allele2_size": allele2_size,
+                "zygosity": zygosity,
+                "n_reads": len(reads),
+                "confidence": confidence,
+            })
+    finally:
+        bam.close()
+        if ref_fasta:
+            ref_fasta.close()
     return results
 
 
@@ -810,6 +839,9 @@ def _write_output_bed(
         Number of loci that passed the confidence filter.
     """
     def _fmt(size):
+        import math
+        if math.isnan(size) or math.isinf(size):
+            return "."
         if size == int(size):
             return str(int(size))
         return f"{size:.1f}"
@@ -820,15 +852,19 @@ def _write_output_bed(
                 "zygosity\tconfidence\tn_reads\n")
         for locus, result in zip(loci, results):
             chrom, start, end, motif = locus
-            if result is None or result.get("confidence", 0.0) < min_confidence:
+            if result is None:
+                f.write(f"{chrom}\t{start}\t{end}\t{motif}\t.\t.\t.\t.\t0\n")
+                continue
+            conf = result.get("confidence", 0.0)
+            if math.isnan(conf) or math.isinf(conf) or conf < min_confidence:
                 f.write(f"{chrom}\t{start}\t{end}\t{motif}\t.\t.\t.\t.\t0\n")
                 continue
             n_passed += 1
-            conf = result.get("confidence", 0.0)
+            conf_str = f"{conf:.3f}"
             f.write(f"{chrom}\t{start}\t{end}\t{motif}\t"
                     f"{_fmt(result['allele1_size'])}\t"
                     f"{_fmt(result['allele2_size'])}\t"
-                    f"{result['zygosity']}\t{conf:.3f}\t{result['n_reads']}\n")
+                    f"{result['zygosity']}\t{conf_str}\t{result['n_reads']}\n")
     return n_passed
 
 
@@ -877,7 +913,7 @@ def genotype(
     concordance_threshold: float = 0.7,
     min_confidence: float = 0.0,
 ) -> str:
-    """Run HaploTR genotyping on a set of TR loci.
+    """Run MosaicTR genotyping on a set of TR loci.
 
     Pipeline: BAM + loci BED -> per-chromosome genotyping -> BED output
 

@@ -1,4 +1,4 @@
-"""Compare HaploTR v2 vs v3 genotyping results against GIAB truth.
+"""Compare MosaicTR v2 vs v3 genotyping results against GIAB truth.
 
 Uses overlap-based matching since prediction coordinates (adotto catalog)
 differ from truth coordinates (GIAB Tier1).
@@ -16,7 +16,7 @@ import numpy as np
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.benchmark import (
+from mosaictr.benchmark import (
     EvalMetrics,
     LocusPrediction,
     LocusTruth,
@@ -25,7 +25,7 @@ from haplotr.benchmark import (
     format_results,
     load_predictions,
 )
-from haplotr.utils import load_adotto_catalog, load_tier1_bed, match_tier1_to_catalog
+from mosaictr.utils import load_adotto_catalog, load_tier1_bed, match_tier1_to_catalog
 
 
 def _match_preds_to_truth(
@@ -100,7 +100,7 @@ def _evaluate_matched(
     pairs: list[tuple[LocusPrediction, LocusTruth]],
 ) -> StratifiedResults:
     """Evaluate matched prediction-truth pairs."""
-    from haplotr.benchmark import _motif_period_bin, _repeat_length_bin, _coverage_bin
+    from mosaictr.benchmark import _motif_period_bin, _repeat_length_bin, _coverage_bin
 
     if not pairs:
         return StratifiedResults()

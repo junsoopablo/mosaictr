@@ -1,6 +1,6 @@
-"""Benchmarking and evaluation for HaploTR.
+"""Benchmarking and evaluation for MosaicTR.
 
-Compares HaploTR predictions against GIAB truth and other tools.
+Compares MosaicTR predictions against GIAB truth and other tools.
 Provides stratified analysis by motif period, repeat length, coverage, etc.
 """
 
@@ -71,9 +71,9 @@ class StratifiedResults:
 
 
 def load_predictions(pred_path: str) -> list[LocusPrediction]:
-    """Load HaploTR predictions from BED output.
+    """Load MosaicTR predictions from BED output.
 
-    Supports both 8-column (HaploTR) and 9-column (legacy DeepTR) formats.
+    Supports both 8-column (MosaicTR) and 9-column (legacy DeepTR) formats.
     """
     preds = []
     with open(pred_path) as f:
@@ -86,7 +86,7 @@ def load_predictions(pred_path: str) -> list[LocusPrediction]:
             try:
                 if cols[4] == ".":
                     continue
-                confidence = float(cols[7]) if len(cols) >= 9 else 0.0
+                confidence = float(cols[7]) if len(cols) >= 9 and cols[7] != "." else 0.0
                 n_reads = int(cols[8]) if len(cols) >= 9 else int(cols[7])
                 preds.append(LocusPrediction(
                     chrom=cols[0],
@@ -330,7 +330,7 @@ def format_results(results: StratifiedResults) -> str:
     """Format evaluation results as a readable string."""
     lines = []
     lines.append("=" * 70)
-    lines.append("HaploTR Evaluation Results")
+    lines.append("MosaicTR Evaluation Results")
     lines.append("=" * 70)
 
     def _fmt_metrics(m: EvalMetrics, label: str = "") -> list[str]:

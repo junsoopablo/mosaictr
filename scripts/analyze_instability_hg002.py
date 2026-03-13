@@ -40,12 +40,12 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.genotype import ReadInfo, extract_reads_enhanced
-from haplotr.instability import (
+from mosaictr.genotype import ReadInfo, extract_reads_enhanced
+from mosaictr.instability import (
     _instability_pooled_fallback,
     compute_instability,
 )
-from haplotr.utils import load_loci_bed
+from mosaictr.utils import load_loci_bed
 
 logging.basicConfig(
     level=logging.INFO,

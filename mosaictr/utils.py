@@ -1,4 +1,4 @@
-"""Utilities for HaploTR: data loading, I/O helpers."""
+"""Utilities for MosaicTR: data loading, I/O helpers."""
 
 from __future__ import annotations
 

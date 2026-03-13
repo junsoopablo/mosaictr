@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Disease-associated loci analysis for HaploTR.
+"""Disease-associated loci analysis for MosaicTR.
 
-Loads STRchive disease loci (76 loci, hg38), matches against HaploTR,
+Loads STRchive disease loci (76 loci, hg38), matches against MosaicTR,
 LongTR, and TRGT genome-wide results, and produces a detailed per-locus
 report including allele sizes, pathogenic thresholds, and accuracy.
 
 Usage:
   python scripts/analyze_disease_loci.py \
-    --haplotr output/genome_wide/v4_hg002_genome_wide.bed \
+    --mosaictr output/genome_wide/v4_hg002_genome_wide.bed \
     --longtr-vcf /path/to/HG002.longtr.vcf.gz \
     --trgt-vcf /path/to/HG002.trgt.sorted.phased.vcf.gz \
     --output output/genome_wide/disease_loci_report.txt
@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.benchmark import LocusPrediction, load_predictions
+from mosaictr.benchmark import LocusPrediction, load_predictions
 from scripts.benchmark_genome_wide import (
     parse_longtr_vcf,
     parse_trgt_vcf,
@@ -71,12 +71,12 @@ def load_strchive_loci(bed_path: str) -> list[dict]:
     return loci
 
 
-def find_match_haplotr(
+def find_match_mosaictr(
     locus: dict,
     pred_lookup: dict[tuple[str, int], LocusPrediction],
     tolerance: int = 200,
 ) -> LocusPrediction | None:
-    """Find HaploTR prediction matching a disease locus."""
+    """Find MosaicTR prediction matching a disease locus."""
     for offset in range(0, tolerance + 1):
         for sign in [0, -1, 1]:
             key = (locus["chrom"], locus["start"] + sign * offset)
@@ -110,14 +110,14 @@ def find_match_tool(
 
 def analyze_disease_loci(
     strchive_loci: list[dict],
-    haplotr_preds: list[LocusPrediction],
+    mosaictr_preds: list[LocusPrediction],
     longtr_dict: dict,
     trgt_dict: dict,
 ) -> list[dict]:
     """Match disease loci to tool results and compute per-locus report."""
-    # Build HaploTR lookup
+    # Build MosaicTR lookup
     ht_lookup = {}
-    for p in haplotr_preds:
+    for p in mosaictr_preds:
         ht_lookup[(p.chrom, p.start)] = p
 
     results = []
@@ -126,8 +126,8 @@ def analyze_disease_loci(
         ref_size = locus["end"] - locus["start"]
         motif_len = len(locus["ref_motif"])
 
-        # HaploTR match
-        ht_pred = find_match_haplotr(locus, ht_lookup)
+        # MosaicTR match
+        ht_pred = find_match_mosaictr(locus, ht_lookup)
         if ht_pred:
             ht_ref = ht_pred.end - ht_pred.start
             ht_d1 = ht_pred.allele1_size - ht_ref
@@ -174,7 +174,7 @@ def format_report(results: list[dict]) -> str:
 
     w("=" * 120)
     w("  DISEASE-ASSOCIATED LOCI ANALYSIS")
-    w("  STRchive 76 loci (hg38) — HG002 HaploTR v4 / LongTR / TRGT")
+    w("  STRchive 76 loci (hg38) — HG002 MosaicTR v4 / LongTR / TRGT")
     w("=" * 120)
 
     n_total = len(results)
@@ -183,7 +183,7 @@ def format_report(results: list[dict]) -> str:
     n_trgt = sum(1 for r in results if "trgt_d1" in r)
 
     w(f"\n  Total disease loci: {n_total}")
-    w(f"  HaploTR matched: {n_ht}")
+    w(f"  MosaicTR matched: {n_ht}")
     w(f"  LongTR matched: {n_lt}")
     w(f"  TRGT matched: {n_trgt}")
 
@@ -238,7 +238,7 @@ def format_report(results: list[dict]) -> str:
             w(f"    Pathogenic threshold: >= {r['pathogenic_min']} repeats")
         w(f"    Inheritance: {r['inheritance']}")
         if "ht_ru1" in r:
-            w(f"    HaploTR: {r['ht_ru1']:.1f} / {r['ht_ru2']:.1f} RU, "
+            w(f"    MosaicTR: {r['ht_ru1']:.1f} / {r['ht_ru2']:.1f} RU, "
               f"{r['ht_zyg']}, conf={r['ht_conf']:.2f}, nreads={r['ht_nreads']}")
 
     # Summary: how many loci each tool found
@@ -247,7 +247,7 @@ def format_report(results: list[dict]) -> str:
     w(f"{'='*120}")
     w(f"\n  {'Tool':<15s} {'Found':>6s} {'Total':>6s} {'Rate':>7s}")
     w("  " + "-" * 36)
-    w(f"  {'HaploTR v4':<15s} {n_ht:>6d} {n_total:>6d} {n_ht/n_total:>6.1%}")
+    w(f"  {'MosaicTR v4':<15s} {n_ht:>6d} {n_total:>6d} {n_ht/n_total:>6.1%}")
     w(f"  {'LongTR':<15s} {n_lt:>6d} {n_total:>6d} {n_lt/n_total:>6.1%}")
     w(f"  {'TRGT':<15s} {n_trgt:>6d} {n_total:>6d} {n_trgt/n_total:>6.1%}")
 
@@ -260,7 +260,7 @@ def format_report(results: list[dict]) -> str:
 
 def main():
     parser = argparse.ArgumentParser(description="Disease loci analysis")
-    parser.add_argument("--haplotr", required=True, help="HaploTR v4 BED output")
+    parser.add_argument("--mosaictr", required=True, help="MosaicTR v4 BED output")
     parser.add_argument("--strchive", default=STRCHIVE_BED, help="STRchive disease loci BED")
     parser.add_argument("--longtr-vcf", default=LONGTR_VCF, help="LongTR VCF")
     parser.add_argument("--trgt-vcf", default=TRGT_VCF, help="TRGT VCF")
@@ -271,9 +271,9 @@ def main():
     strchive = load_strchive_loci(args.strchive)
     logger.info("Loaded %d disease loci", len(strchive))
 
-    logger.info("Loading HaploTR predictions...")
-    ht_preds = load_predictions(args.haplotr)
-    logger.info("HaploTR: %d predictions", len(ht_preds))
+    logger.info("Loading MosaicTR predictions...")
+    ht_preds = load_predictions(args.mosaictr)
+    logger.info("MosaicTR: %d predictions", len(ht_preds))
 
     logger.info("Parsing LongTR VCF...")
     longtr = parse_longtr_vcf(args.longtr_vcf)

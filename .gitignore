@@ -42,6 +42,12 @@ build/
 .claude/
 CLAUDE.md
 
+# Coverage reports
+.coverage
+
+# Synology metadata
+manuscript/@eaDir/
+
 # Misc
 *.xlsx
 *.tmp

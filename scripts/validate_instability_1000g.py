@@ -7,7 +7,7 @@ Pipeline steps:
   1. find-carrier   — Guide for identifying ATXN10 carrier from pathSTR
   2. download       — Download ONT CRAM from IGSR (1000 Genomes)
   3. haplotag       — Haplotag with whatshap using 1000G phased VCF
-  4. instability    — Run HaploTR instability on ATXN10 locus
+  4. instability    — Run MosaicTR instability on ATXN10 locus
   5. run-all        — Complete pipeline (steps 2-4)
 
 Usage:
@@ -281,9 +281,9 @@ def cmd_haplotag(args) -> str:
 # ===========================================================================
 
 def cmd_instability(args):
-    """Run HaploTR instability on ATXN10 locus and produce report."""
-    from haplotr.genotype import ReadInfo, extract_reads_enhanced
-    from haplotr.instability import (
+    """Run MosaicTR instability on ATXN10 locus and produce report."""
+    from mosaictr.genotype import ReadInfo, extract_reads_enhanced
+    from mosaictr.instability import (
         _instability_pooled_fallback,
         compute_instability,
     )

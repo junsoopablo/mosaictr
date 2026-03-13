@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Confidence calibration analysis for HaploTR.
+"""Confidence calibration analysis for MosaicTR.
 
-Analyzes how HaploTR's confidence score relates to actual accuracy:
+Analyzes how MosaicTR's confidence score relates to actual accuracy:
 1. Accuracy vs confidence threshold curve
 2. Calibration: binned confidence vs observed accuracy
 3. Filtering gains: accuracy after removing low-confidence calls
 
-This is a HaploTR-unique feature — LongTR and TRGT do not provide
+This is a MosaicTR-unique feature — LongTR and TRGT do not provide
 per-locus confidence scores.
 
 Usage:
   python scripts/analyze_confidence.py \
-    --haplotr output/genome_wide/v4_hg002_genome_wide.bed \
+    --mosaictr output/genome_wide/v4_hg002_genome_wide.bed \
     --output output/genome_wide/confidence_report.txt \
     --output-tsv output/genome_wide/confidence_curve.tsv
 """
@@ -27,11 +27,11 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.benchmark import load_predictions, _motif_period_bin
-from haplotr.utils import load_adotto_catalog, load_tier1_bed
+from mosaictr.benchmark import load_predictions, _motif_period_bin
+from mosaictr.utils import load_adotto_catalog, load_tier1_bed
 from scripts.benchmark_genome_wide import (
     match_preds_to_truth,
-    compute_haplotr_metrics,
+    compute_mosaictr_metrics,
     TRUTH_BED,
     CATALOG_BED,
 )
@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(description="Confidence calibration analysis")
-    parser.add_argument("--haplotr", required=True, help="HaploTR v4 BED")
+    parser.add_argument("--mosaictr", required=True, help="MosaicTR v4 BED")
     parser.add_argument("--truth", default=TRUTH_BED)
     parser.add_argument("--catalog", default=CATALOG_BED)
     parser.add_argument("--output", required=True, help="Output report")
@@ -55,7 +55,7 @@ def main():
 
     tier1 = load_tier1_bed(args.truth)
     catalog = load_adotto_catalog(args.catalog)
-    ht_preds = load_predictions(args.haplotr)
+    ht_preds = load_predictions(args.mosaictr)
     ht_pairs = match_preds_to_truth(ht_preds, tier1, catalog)
 
     logger.info("Matched %d loci for confidence analysis", len(ht_pairs))
@@ -65,7 +65,7 @@ def main():
 
     w("=" * 90)
     w("  CONFIDENCE CALIBRATION ANALYSIS")
-    w("  HaploTR v4 — GIAB Tier1 benchmark")
+    w("  MosaicTR v4 — GIAB Tier1 benchmark")
     w("=" * 90)
     w(f"\n  Total matched loci: {len(ht_pairs):,}")
 
@@ -86,7 +86,7 @@ def main():
         sub = [(p, t) for p, t in ht_pairs if p.confidence >= thresh]
         if len(sub) < 10:
             continue
-        m = compute_haplotr_metrics(sub)
+        m = compute_mosaictr_metrics(sub)
         if m is None:
             continue
         pct_kept = len(sub) / len(ht_pairs) * 100
@@ -118,7 +118,7 @@ def main():
         sub = [(p, t) for p, t in ht_pairs if lo <= p.confidence < hi]
         if len(sub) < 10:
             continue
-        m = compute_haplotr_metrics(sub)
+        m = compute_mosaictr_metrics(sub)
         if m is None:
             continue
         w(f"  [{lo:.1f}-{hi:.1f}) {m['n']:>8,d} "
@@ -141,7 +141,7 @@ def main():
         sub = [(p, t) for p, t in tp_pairs if p.confidence >= thresh]
         if len(sub) < 10:
             continue
-        m = compute_haplotr_metrics(sub)
+        m = compute_mosaictr_metrics(sub)
         if m is None:
             continue
         pct_kept = len(sub) / len(tp_pairs) * 100

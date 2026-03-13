@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Allele size delta analysis for HaploTR.
+"""Allele size delta analysis for MosaicTR.
 
 Stratifies genotyping accuracy by the magnitude of the allele size
 difference from reference (|truth allele - ref|). This reveals how
@@ -7,7 +7,7 @@ well tools handle small vs large expansions/contractions.
 
 Usage:
   python scripts/analyze_allele_delta.py \
-    --haplotr output/genome_wide/v4_hg002_genome_wide.bed \
+    --mosaictr output/genome_wide/v4_hg002_genome_wide.bed \
     --output output/genome_wide/allele_delta_report.txt
 """
 
@@ -23,14 +23,14 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.benchmark import load_predictions, _motif_period_bin
-from haplotr.utils import load_adotto_catalog, load_tier1_bed, match_tier1_to_catalog
+from mosaictr.benchmark import load_predictions, _motif_period_bin
+from mosaictr.utils import load_adotto_catalog, load_tier1_bed, match_tier1_to_catalog
 from scripts.benchmark_genome_wide import (
     match_preds_to_truth,
     match_tool_to_truth,
     parse_longtr_vcf,
     parse_trgt_vcf,
-    compute_haplotr_metrics,
+    compute_mosaictr_metrics,
     compute_tool_metrics,
     TRUTH_BED,
     CATALOG_BED,
@@ -72,7 +72,7 @@ def _max_allele_delta(truth) -> float:
 
 def main():
     parser = argparse.ArgumentParser(description="Allele delta analysis")
-    parser.add_argument("--haplotr", required=True, help="HaploTR v4 BED")
+    parser.add_argument("--mosaictr", required=True, help="MosaicTR v4 BED")
     parser.add_argument("--longtr-vcf", default=LONGTR_VCF)
     parser.add_argument("--trgt-vcf", default=TRGT_VCF)
     parser.add_argument("--truth", default=TRUTH_BED)
@@ -87,7 +87,7 @@ def main():
     tier1 = load_tier1_bed(args.truth, chroms=chrom_set)
     catalog = load_adotto_catalog(args.catalog, chroms=chrom_set)
 
-    ht_preds = load_predictions(args.haplotr)
+    ht_preds = load_predictions(args.mosaictr)
     longtr = parse_longtr_vcf(args.longtr_vcf, chroms=chrom_set)
     trgt = parse_trgt_vcf(args.trgt_vcf, chroms=chrom_set)
 
@@ -104,7 +104,7 @@ def main():
     w("  Accuracy stratified by |truth allele - reference| magnitude")
     w("=" * 90)
 
-    # HaploTR
+    # MosaicTR
     ht_by_delta = defaultdict(list)
     for p, t in ht_pairs:
         ht_by_delta[_delta_bin(_max_allele_delta(t))].append((p, t))
@@ -129,7 +129,7 @@ def main():
         trgt_sub = trgt_by_delta.get(bin_name, [])
 
         for tool_name, sub, compute_fn, is_ht in [
-            ("HaploTR v4", ht_sub, compute_haplotr_metrics, True),
+            ("MosaicTR v4", ht_sub, compute_mosaictr_metrics, True),
             ("LongTR", lt_sub, compute_tool_metrics, False),
             ("TRGT", trgt_sub, compute_tool_metrics, False),
         ]:
@@ -166,7 +166,7 @@ def main():
     w("  " + "-" * 65)
     for bin_name, _, _ in DELTA_BINS:
         for tool_name, sub_dict, compute_fn in [
-            ("HaploTR v4", ht_tp_by_delta, compute_haplotr_metrics),
+            ("MosaicTR v4", ht_tp_by_delta, compute_mosaictr_metrics),
             ("LongTR", lt_tp_by_delta, compute_tool_metrics),
             ("TRGT", trgt_tp_by_delta, compute_tool_metrics),
         ]:

@@ -13,7 +13,7 @@
 
 \bibliographystyle{plainnat}
 
-\title{HaploTR: haplotype-aware tandem repeat genotyping from long-read sequencing}
+\title{MosaicTR: haplotype-aware tandem repeat genotyping from long-read sequencing}
 
 \author[1]{Junsoo Park}
 \author[1]{Hyeshik Chang}
@@ -30,13 +30,13 @@
 \noindent
 \textbf{Summary:}
 Accurate genotyping of tandem repeats (TRs) from long-read sequencing requires distinguishing heterozygous from homozygous loci while sizing alleles precisely.
-We present HaploTR, a tool that leverages haplotype (HP) tags from phased BAM files to separate alleles prior to sizing, using concordance-based zygosity determination.
-Benchmarked against the Genome in a Bottle Tier1 truth set (1.64 million loci), HaploTR achieves 97.2\% exact allele match, 99.3\% zygosity accuracy, and 99.7\% genotype concordance, outperforming LongTR (87.5\% exact, 99.6\% zygosity) in allele sizing while maintaining comparable zygosity determination.
-HaploTR further provides per-locus confidence scores, enabling users to filter unreliable calls and achieve $>$99.8\% zygosity accuracy on high-confidence loci.
+We present MosaicTR, a tool that leverages haplotype (HP) tags from phased BAM files to separate alleles prior to sizing, using concordance-based zygosity determination.
+Benchmarked against the Genome in a Bottle Tier1 truth set (1.64 million loci), MosaicTR achieves 97.2\% exact allele match, 99.3\% zygosity accuracy, and 99.7\% genotype concordance, outperforming LongTR (87.5\% exact, 99.6\% zygosity) in allele sizing while maintaining comparable zygosity determination.
+MosaicTR further provides per-locus confidence scores, enabling users to filter unreliable calls and achieve $>$99.8\% zygosity accuracy on high-confidence loci.
 Mendelian inheritance analysis on the HG002/HG003/HG004 trio demonstrates 99.3\% off-by-one-unit consistency across 1.77 million loci, confirming robust haplotype-aware genotyping across the genome.
 \\[6pt]
 \textbf{Availability:}
-HaploTR is available at \url{https://github.com/xxx/haplotr} under the MIT license.
+MosaicTR is available at \url{https://github.com/xxx/mosaictr} under the MIT license.
 \\[6pt]
 \textbf{Contact:} hyeshik@snu.ac.kr
 \end{abstract}
@@ -54,25 +54,25 @@ STRkit \citep{liu2024strkit} focuses on STR phasing with 97.9\% strict and 99.1\
 These tools genotype from raw alignments without explicitly leveraging phasing information already present in many long-read datasets.
 
 Modern long-read pipelines (e.g., DeepVariant, WhatsHap) routinely produce HP-tagged BAMs where each read is assigned to haplotype 1 or 2.
-HaploTR exploits these existing HP tags to separate reads into haplotype clusters before computing allele sizes, providing a natural framework for diploid genotyping that avoids de novo haplotype inference at each locus.
+MosaicTR exploits these existing HP tags to separate reads into haplotype clusters before computing allele sizes, providing a natural framework for diploid genotyping that avoids de novo haplotype inference at each locus.
 
 % ---------------------------------------------------------------------------
 \section*{Methods}
 
 \subsection*{Algorithm overview}
 
-HaploTR takes an HP-tagged BAM and a TR loci catalog as input.
+MosaicTR takes an HP-tagged BAM and a TR loci catalog as input.
 For each locus, it extracts overlapping reads with sufficient flanking sequence, computes CIGAR-based allele sizes, and groups reads by HP tag.
 
 \paragraph{Allele sizing.}
-For short tandem repeats (STRs, motif $<$7\,bp), HaploTR computes MapQ-weighted medians per haplotype with integer rounding.
+For short tandem repeats (STRs, motif $<$7\,bp), MosaicTR computes MapQ-weighted medians per haplotype with integer rounding.
 For variable number tandem repeats (VNTRs, motif $\geq$7\,bp), it applies two-pass MAD-trimmed robust medians to handle outlier reads.
 
 \paragraph{HP=0 read assignment.}
 Reads lacking HP tags (HP=0) are assigned to the haplotype cluster with the closer median allele size, then medians are recomputed with the augmented clusters.
 
 \paragraph{Zygosity determination.}
-HaploTR uses a concordance-based zygosity decision.
+MosaicTR uses a concordance-based zygosity decision.
 HP concordance is defined as the fraction of HP-tagged reads closer to their own haplotype median:
 \begin{equation}
 \text{concordance} = \frac{\#\{\text{HP}=k \text{ reads closer to } \text{med}_k\}}{\#\{\text{HP-tagged reads}\}}
@@ -84,13 +84,13 @@ An adaptive collapse threshold adjusts for coverage: close alleles with low mino
 For VNTRs, a gap-based bimodality test detects two-allele distributions: the maximum inter-read gap must exceed twice the median gap and 1\,bp.
 
 \paragraph{Confidence score.}
-HaploTR outputs a per-locus confidence score (0--1) combining concordance and sizing quality, enabling downstream filtering.
+MosaicTR outputs a per-locus confidence score (0--1) combining concordance and sizing quality, enabling downstream filtering.
 
 \subsection*{Benchmarking}
 
-We evaluated HaploTR against the GIAB Tandem Repeat Benchmark v1.0.1 Tier1 truth set for HG002, which provides assembly-derived allele sizes for 1,638,106 loci genome-wide \citep{wagner2024}.
+We evaluated MosaicTR against the GIAB Tandem Repeat Benchmark v1.0.1 Tier1 truth set for HG002, which provides assembly-derived allele sizes for 1,638,106 loci genome-wide \citep{wagner2024}.
 The Adotto TR catalog v1.2 \citep{dolzhenko2024} defined the loci set.
-We compared HaploTR with LongTR v1.2 \citep{ziaei-jam2024} and TRGT v1.0 \citep{dolzhenko2024} using the same truth set.
+We compared MosaicTR with LongTR v1.2 \citep{ziaei-jam2024} and TRGT v1.0 \citep{dolzhenko2024} using the same truth set.
 
 Mendelian inheritance was assessed using trio data (HG002 child, HG003 father, HG004 mother) with PacBio HiFi Revio reads aligned to GRCh38.
 For each locus genotyped in all three samples, we checked whether the child's alleles were consistent with inheriting one allele from each parent.
@@ -102,7 +102,7 @@ Metrics: \textbf{Exact match} (both alleles within 0.5\,bp), \textbf{within 1\,b
 
 \subsection*{Genome-wide genotyping accuracy}
 
-HaploTR genotyped all 1,784,804 catalog loci in HG002 with a median of 49 reads per locus.
+MosaicTR genotyped all 1,784,804 catalog loci in HG002 with a median of 49 reads per locus.
 Of these, 1,637,425 overlapped GIAB Tier1 truth loci and were used for accuracy evaluation (Table~\ref{tab:overall}).
 
 \begin{table}[h]
@@ -114,46 +114,46 @@ TRGT was excluded from the table due to coordinate system differences between TR
 \toprule
 Tool & $n$ & Exact & $\leq$1\,bp & MAE & Zyg\% & GenConc \\
 \midrule
-HaploTR v4 & 1,637,425 & 97.2\% & 99.3\% & 0.19 & 99.3\% & 99.7\% \\
+MosaicTR v4 & 1,637,425 & 97.2\% & 99.3\% & 0.19 & 99.3\% & 99.7\% \\
 LongTR     & 1,623,440 & 87.5\% & 99.1\% & 0.23 & 99.6\% & 99.6\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-HaploTR achieved the highest exact allele match (97.2\% vs 87.5\% for LongTR) and lowest MAE (0.19\,bp vs 0.23\,bp), indicating more precise allele sizing from the HP-weighted median approach.
+MosaicTR achieved the highest exact allele match (97.2\% vs 87.5\% for LongTR) and lowest MAE (0.19\,bp vs 0.23\,bp), indicating more precise allele sizing from the HP-weighted median approach.
 LongTR achieved slightly higher zygosity accuracy (99.6\% vs 99.3\%), reflecting its Bayesian haplotype model for zygosity inference.
 TRGT \citep{dolzhenko2024} was evaluated using its native catalog but only 535K of 1.64M Tier1 loci could be matched due to differing coordinate conventions; its published genome-wide accuracy is comparable to LongTR.
 
 \subsection*{Accuracy by motif period}
 
 Performance varied by motif class (Figure~\ref{fig:main}b).
-HaploTR achieved lower MAE than LongTR across all STR categories (motif 1--6\,bp), with both tools achieving sub-0.25\,bp MAE.
-For VNTRs (motif $\geq$7\,bp), the two tools showed comparable MAE (0.31 vs 0.28\,bp); HaploTR's two-pass MAD trimming and gap-based bimodality detection maintained competitive accuracy despite alignment ambiguity in long, complex repeats.
+MosaicTR achieved lower MAE than LongTR across all STR categories (motif 1--6\,bp), with both tools achieving sub-0.25\,bp MAE.
+For VNTRs (motif $\geq$7\,bp), the two tools showed comparable MAE (0.31 vs 0.28\,bp); MosaicTR's two-pass MAD trimming and gap-based bimodality detection maintained competitive accuracy despite alignment ambiguity in long, complex repeats.
 
 \subsection*{Confidence-based filtering}
 
-HaploTR's confidence score enables accuracy--yield trade-offs (Figure~\ref{fig:main}c).
+MosaicTR's confidence score enables accuracy--yield trade-offs (Figure~\ref{fig:main}c).
 At confidence $\geq$0.55, zygosity accuracy increased from 99.3\% to 99.8\% and exact match from 97.2\% to 99.1\% while retaining 88.3\% of loci.
 At confidence $\geq$1.0, zygosity accuracy reached 99.9\% retaining 87.0\% of loci, demonstrating that the confidence score effectively identifies unreliable calls.
-This feature is unique to HaploTR among the tools compared.
+This feature is unique to MosaicTR among the tools compared.
 
 \subsection*{Mendelian inheritance}
 
-In the HG002/HG003/HG004 trio, HaploTR achieved 89.6\% strict and 99.3\% off-by-one-motif-unit Mendelian consistency across 1,769,186 common loci.
+In the HG002/HG003/HG004 trio, MosaicTR achieved 89.6\% strict and 99.3\% off-by-one-motif-unit Mendelian consistency across 1,769,186 common loci.
 Published rates are 86\% (LongTR, strict), 98.4\% (TRGT, off-by-one-unit), and 97.9\%/99.1\% (STRkit, strict/relaxed).
-HaploTR's strict rate exceeds LongTR and its relaxed rate exceeds all three published tools, confirming accurate haplotype-aware genotyping genome-wide.
+MosaicTR's strict rate exceeds LongTR and its relaxed rate exceeds all three published tools, confirming accurate haplotype-aware genotyping genome-wide.
 
 \subsection*{Disease-associated loci}
 
-Of 75 STRchive disease-associated loci in the catalog, 69 (92\%) were genotyped by HaploTR, compared with 66 each for LongTR and TRGT.
+Of 75 STRchive disease-associated loci in the catalog, 69 (92\%) were genotyped by MosaicTR, compared with 66 each for LongTR and TRGT.
 These include clinically important targets such as \textit{HTT} (Huntington), \textit{FMR1} (Fragile X), \textit{DMPK} (myotonic dystrophy), \textit{FXN} (Friedreich ataxia), and \textit{C9orf72} (ALS/FTD).
 All genotyped loci showed allele sizes within the normal range for the healthy HG002 individual.
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=\textwidth]{figures/figure1.pdf}
-\caption{HaploTR genome-wide benchmarking results.
-(a)~Overall genotyping accuracy for HaploTR and LongTR against GIAB Tier1 truth.
+\caption{MosaicTR genome-wide benchmarking results.
+(a)~Overall genotyping accuracy for MosaicTR and LongTR against GIAB Tier1 truth.
 (b)~Mean absolute error (MAE) by motif period class.
 (c)~Confidence-based filtering: accuracy metrics (left axis) and fraction of retained loci (right axis, shaded) as a function of minimum confidence threshold.}
 \label{fig:main}
@@ -162,16 +162,16 @@ All genotyped loci showed allele sizes within the normal range for the healthy H
 % ---------------------------------------------------------------------------
 \section*{Discussion}
 
-HaploTR demonstrates that leveraging existing haplotype phase information from long-read BAMs provides an effective approach to diploid TR genotyping.
-HaploTR's exact allele match of 97.2\% substantially exceeds LongTR's 87.5\%, while maintaining comparable zygosity accuracy (99.3\% vs 99.6\%), demonstrating that HP-tag--based allele sizing provides superior precision.
+MosaicTR demonstrates that leveraging existing haplotype phase information from long-read BAMs provides an effective approach to diploid TR genotyping.
+MosaicTR's exact allele match of 97.2\% substantially exceeds LongTR's 87.5\%, while maintaining comparable zygosity accuracy (99.3\% vs 99.6\%), demonstrating that HP-tag--based allele sizing provides superior precision.
 
-Key advantages of HaploTR include:
+Key advantages of MosaicTR include:
 (1)~per-locus confidence scores for filtering unreliable calls;
 (2)~explicit use of HP tags, which avoids redundant phasing computation;
 (3)~a simple, interpretable algorithm with no machine learning training required.
 
 Limitations include dependence on HP-tagged BAMs (standard for modern HiFi pipelines) and higher MAE for long VNTRs where alignment uncertainty dominates.
-Future work will extend HaploTR to population-scale analysis and targeted clinical panels for TR expansion disorders.
+Future work will extend MosaicTR to population-scale analysis and targeted clinical panels for TR expansion disorders.
 
 % ---------------------------------------------------------------------------
 \section*{Funding}

@@ -1,11 +1,11 @@
-"""Tests for HaploTR genotype module."""
+"""Tests for MosaicTR genotype module."""
 
 from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 
-from haplotr.genotype import (
+from mosaictr.genotype import (
     ReadInfo,
     _adaptive_collapse_threshold,
     _assign_hp0_reads,
@@ -558,6 +558,26 @@ class TestWriteOutputBed:
         ]
         n_passed = _write_output_bed(output, loci, results, min_confidence=0.0)
         assert n_passed == 1
+
+    def test_nan_allele_sizes(self, tmp_path):
+        """NaN allele sizes should produce '.' not crash."""
+        output = str(tmp_path / "nan.bed")
+        loci = [("chr1", 100, 200, "AC")]
+        results = [{
+            "allele1_size": float("nan"),
+            "allele2_size": float("inf"),
+            "zygosity": "HOM",
+            "confidence": float("nan"),
+            "n_reads": 5,
+        }]
+        _write_output_bed(output, loci, results)
+        with open(output) as f:
+            data = f.read()
+        assert "nan" not in data.lower()
+        assert "inf" not in data.lower()
+        # NaN/Inf values should be replaced with "."
+        fields = data.strip().split("\t")
+        assert "." in fields  # at least one "." for NaN values
 
 
 # ===========================================================================

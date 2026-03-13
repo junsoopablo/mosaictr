@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Genome-wide benchmark: HaploTR v4 vs LongTR vs TRGT against GIAB truth.
+"""Genome-wide benchmark: MosaicTR v4 vs LongTR vs TRGT against GIAB truth.
 
 Produces publication-quality tables comparing genotyping accuracy across
 all GIAB Tier1 loci. Stratified by variant type, motif period, repeat
@@ -7,7 +7,7 @@ length, and coverage. Also reports on STRchive disease loci.
 
 Usage:
   python scripts/benchmark_genome_wide.py \
-    --haplotr output/genome_wide/haplotr_v4_genome_wide.bed \
+    --mosaictr output/genome_wide/mosaictr_v4_genome_wide.bed \
     --longtr-vcf /path/to/HG002.longtr.vcf.gz \
     --trgt-vcf /path/to/HG002.trgt.sorted.phased.vcf.gz \
     --output output/genome_wide/benchmark_report.txt
@@ -28,7 +28,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.benchmark import (
+from mosaictr.benchmark import (
     EvalMetrics,
     LocusPrediction,
     LocusTruth,
@@ -37,7 +37,7 @@ from haplotr.benchmark import (
     _repeat_length_bin,
     _coverage_bin,
 )
-from haplotr.utils import (
+from mosaictr.utils import (
     load_adotto_catalog,
     load_tier1_bed,
     match_tier1_to_catalog,
@@ -219,7 +219,7 @@ def parse_trgt_vcf(vcf_path, chroms=None):
 # ---------------------------------------------------------------------------
 
 def match_preds_to_truth(preds, tier1_loci, catalog):
-    """Match HaploTR predictions (adotto coords) to truth via overlap."""
+    """Match MosaicTR predictions (adotto coords) to truth via overlap."""
     tier1_by_chrom = defaultdict(list)
     for t in tier1_loci:
         tier1_by_chrom[t.chrom].append((t.start, t.end, t))
@@ -399,7 +399,7 @@ def compute_tool_metrics(pairs, motif_len_source="truth"):
     return _compute_metrics_arrays(pred_diffs, true_diffs, motif_lens, pred_zyg, true_zyg)
 
 
-def compute_haplotr_metrics(pairs):
+def compute_mosaictr_metrics(pairs):
     """Compute metrics from list of (LocusPrediction, LocusTruth) tuples."""
     if not pairs:
         return None
@@ -466,22 +466,22 @@ def stratify_pairs(pairs, key_fn):
     return dict(bins)
 
 
-def haplotr_motif_bin(pair):
+def mosaictr_motif_bin(pair):
     _, truth = pair
     return _motif_period_bin(truth.motif_length)
 
 
-def haplotr_length_bin(pair):
+def mosaictr_length_bin(pair):
     pred, truth = pair
     return _repeat_length_bin(truth.end - truth.start)
 
 
-def haplotr_coverage_bin(pair):
+def mosaictr_coverage_bin(pair):
     pred, truth = pair
     return _coverage_bin(pred.n_reads)
 
 
-def haplotr_variant_bin(pair):
+def mosaictr_variant_bin(pair):
     _, truth = pair
     return "TP" if truth.is_variant else "TN"
 
@@ -589,8 +589,8 @@ def fmt_metric_row(name, m):
 
 def main():
     parser = argparse.ArgumentParser(description="Genome-wide TR genotyping benchmark")
-    parser.add_argument("--haplotr", required=True, help="HaploTR v4 BED output")
-    parser.add_argument("--haplotr-v3", default=None, help="HaploTR v3 BED output (optional)")
+    parser.add_argument("--mosaictr", required=True, help="MosaicTR v4 BED output")
+    parser.add_argument("--mosaictr-v3", default=None, help="MosaicTR v3 BED output (optional)")
     parser.add_argument("--longtr-vcf", default=LONGTR_VCF, help="LongTR VCF")
     parser.add_argument("--trgt-vcf", default=TRGT_VCF, help="TRGT VCF")
     parser.add_argument("--truth", default=TRUTH_BED, help="GIAB Tier1 BED")
@@ -612,15 +612,15 @@ def main():
     catalog = load_adotto_catalog(args.catalog, chroms=chrom_set)
     logger.info("Tier1: %d, Catalog: %d", len(tier1), len(catalog))
 
-    logger.info("Loading HaploTR v4...")
-    ht_preds = load_predictions(args.haplotr)
-    logger.info("HaploTR v4: %d predictions", len(ht_preds))
+    logger.info("Loading MosaicTR v4...")
+    ht_preds = load_predictions(args.mosaictr)
+    logger.info("MosaicTR v4: %d predictions", len(ht_preds))
 
     ht_v3_preds = None
-    if args.haplotr_v3:
-        logger.info("Loading HaploTR v3...")
-        ht_v3_preds = load_predictions(args.haplotr_v3)
-        logger.info("HaploTR v3: %d predictions", len(ht_v3_preds))
+    if args.mosaictr_v3:
+        logger.info("Loading MosaicTR v3...")
+        ht_v3_preds = load_predictions(args.mosaictr_v3)
+        logger.info("MosaicTR v3: %d predictions", len(ht_v3_preds))
 
     logger.info("Parsing LongTR VCF...")
     longtr_dict = parse_longtr_vcf(args.longtr_vcf, chroms=chrom_set)
@@ -633,14 +633,14 @@ def main():
     ht_pairs = match_preds_to_truth(ht_preds, tier1, catalog)
     lt_pairs = match_tool_to_truth(longtr_dict, tier1, catalog)
     trgt_pairs = match_tool_to_truth(trgt_dict, tier1, catalog)
-    logger.info("HaploTR matched: %d", len(ht_pairs))
+    logger.info("MosaicTR matched: %d", len(ht_pairs))
     logger.info("LongTR matched: %d", len(lt_pairs))
     logger.info("TRGT matched: %d", len(trgt_pairs))
 
     ht_v3_pairs = None
     if ht_v3_preds:
         ht_v3_pairs = match_preds_to_truth(ht_v3_preds, tier1, catalog)
-        logger.info("HaploTR v3 matched: %d", len(ht_v3_pairs))
+        logger.info("MosaicTR v3 matched: %d", len(ht_v3_pairs))
 
     # ── Report header ─────────────────────────────────────────────────────
     chrom_label = args.chroms if args.chroms else "all"
@@ -653,17 +653,17 @@ def main():
     n_tp = sum(1 for t in tier1 if t.is_variant)
     n_tn = len(tier1) - n_tp
     w(f"\n  Tier1: {len(tier1)} total ({n_tp} TP, {n_tn} TN)")
-    w(f"  HaploTR v4 matched: {len(ht_pairs)}")
+    w(f"  MosaicTR v4 matched: {len(ht_pairs)}")
     if ht_v3_pairs:
-        w(f"  HaploTR v3 matched: {len(ht_v3_pairs)}")
+        w(f"  MosaicTR v3 matched: {len(ht_v3_pairs)}")
     w(f"  LongTR matched:    {len(lt_pairs)}")
     w(f"  TRGT matched:      {len(trgt_pairs)}")
 
     # ── Compute metrics ───────────────────────────────────────────────────
-    ht_metrics = compute_haplotr_metrics(ht_pairs)
+    ht_metrics = compute_mosaictr_metrics(ht_pairs)
     lt_metrics = compute_tool_metrics(lt_pairs)
     trgt_metrics = compute_tool_metrics(trgt_pairs)
-    ht_v3_metrics = compute_haplotr_metrics(ht_v3_pairs) if ht_v3_pairs else None
+    ht_v3_metrics = compute_mosaictr_metrics(ht_v3_pairs) if ht_v3_pairs else None
 
     # ── Overall table ─────────────────────────────────────────────────────
     w(f"\n{'='*80}")
@@ -671,27 +671,27 @@ def main():
     w(f"{'='*80}\n")
     w(TABLE_HEADER)
     w(TABLE_SEP)
-    w(fmt_metric_row("HaploTR v4", ht_metrics))
+    w(fmt_metric_row("MosaicTR v4", ht_metrics))
     if ht_v3_metrics:
-        w(fmt_metric_row("HaploTR v3", ht_v3_metrics))
+        w(fmt_metric_row("MosaicTR v3", ht_v3_metrics))
     w(fmt_metric_row("LongTR", lt_metrics))
     w(fmt_metric_row("TRGT", trgt_metrics))
 
     # ── By variant type ───────────────────────────────────────────────────
     for vtype in ["TP", "TN"]:
-        ht_sub = [(p, t) for p, t in ht_pairs if haplotr_variant_bin((p, t)) == vtype]
+        ht_sub = [(p, t) for p, t in ht_pairs if mosaictr_variant_bin((p, t)) == vtype]
         lt_sub = [p for p in lt_pairs if tool_variant_bin(p) == vtype]
         trgt_sub = [p for p in trgt_pairs if tool_variant_bin(p) == vtype]
-        ht_v3_sub = [(p, t) for p, t in (ht_v3_pairs or []) if haplotr_variant_bin((p, t)) == vtype]
+        ht_v3_sub = [(p, t) for p, t in (ht_v3_pairs or []) if mosaictr_variant_bin((p, t)) == vtype]
 
         w(f"\n{'='*80}")
         w(f"  {vtype} (variant)" if vtype == "TP" else f"  {vtype} (reference)")
         w(f"{'='*80}\n")
         w(TABLE_HEADER)
         w(TABLE_SEP)
-        w(fmt_metric_row("HaploTR v4", compute_haplotr_metrics(ht_sub)))
+        w(fmt_metric_row("MosaicTR v4", compute_mosaictr_metrics(ht_sub)))
         if ht_v3_sub:
-            w(fmt_metric_row("HaploTR v3", compute_haplotr_metrics(ht_v3_sub)))
+            w(fmt_metric_row("MosaicTR v3", compute_mosaictr_metrics(ht_v3_sub)))
         w(fmt_metric_row("LongTR", compute_tool_metrics(lt_sub)))
         w(fmt_metric_row("TRGT", compute_tool_metrics(trgt_sub)))
 
@@ -701,7 +701,7 @@ def main():
     w(f"{'='*80}")
     motif_bins = ["homopolymer", "dinucleotide", "STR_3bp", "STR_4bp",
                   "STR_5bp", "STR_6bp", "VNTR_7+"]
-    ht_by_motif = stratify_pairs(ht_pairs, haplotr_motif_bin)
+    ht_by_motif = stratify_pairs(ht_pairs, mosaictr_motif_bin)
     lt_by_motif = stratify_pairs(lt_pairs, tool_motif_bin)
     trgt_by_motif = stratify_pairs(trgt_pairs, tool_motif_bin)
 
@@ -714,7 +714,7 @@ def main():
         w(f"\n  --- {mb} ---")
         w(f"  {TABLE_HEADER}")
         w(f"  {TABLE_SEP}")
-        w(f"  {fmt_metric_row('HaploTR v4', compute_haplotr_metrics(ht_sub))}")
+        w(f"  {fmt_metric_row('MosaicTR v4', compute_mosaictr_metrics(ht_sub))}")
         w(f"  {fmt_metric_row('LongTR', compute_tool_metrics(lt_sub))}")
         w(f"  {fmt_metric_row('TRGT', compute_tool_metrics(trgt_sub))}")
 
@@ -723,7 +723,7 @@ def main():
     w("  BY REPEAT LENGTH")
     w(f"{'='*80}")
     len_bins = ["<100bp", "100-500bp", "500-1000bp", ">1000bp"]
-    ht_by_len = stratify_pairs(ht_pairs, haplotr_length_bin)
+    ht_by_len = stratify_pairs(ht_pairs, mosaictr_length_bin)
     lt_by_len = stratify_pairs(lt_pairs, tool_length_bin)
     trgt_by_len = stratify_pairs(trgt_pairs, tool_length_bin)
 
@@ -736,21 +736,21 @@ def main():
         w(f"\n  --- {lb} ---")
         w(f"  {TABLE_HEADER}")
         w(f"  {TABLE_SEP}")
-        w(f"  {fmt_metric_row('HaploTR v4', compute_haplotr_metrics(ht_sub))}")
+        w(f"  {fmt_metric_row('MosaicTR v4', compute_mosaictr_metrics(ht_sub))}")
         w(f"  {fmt_metric_row('LongTR', compute_tool_metrics(lt_sub))}")
         w(f"  {fmt_metric_row('TRGT', compute_tool_metrics(trgt_sub))}")
 
     # ── By coverage ───────────────────────────────────────────────────────
     w(f"\n{'='*80}")
-    w("  BY COVERAGE (HaploTR only)")
+    w("  BY COVERAGE (MosaicTR only)")
     w(f"{'='*80}")
     cov_bins = ["<15x", "15-30x", ">30x"]
-    ht_by_cov = stratify_pairs(ht_pairs, haplotr_coverage_bin)
+    ht_by_cov = stratify_pairs(ht_pairs, mosaictr_coverage_bin)
     for cb in cov_bins:
         sub = ht_by_cov.get(cb, [])
         if not sub:
             continue
-        m = compute_haplotr_metrics(sub)
+        m = compute_mosaictr_metrics(sub)
         w(f"\n  {cb}: n={m['n']}, MAE={m['mae']:.3f}, Exact={m['exact']:.1%}, "
           f"ZygAcc={m['zyg_acc']:.1%}, GenConc={m['geno_conc']:.1%}")
 
@@ -795,7 +795,7 @@ def main():
     w(f"\n  {'Tool':<15s} {'n':>6s} {'Exact%':>7s} {'<=1bp':>7s} {'MAE':>7s} "
       f"{'Zyg%':>7s} {'GenConc':>7s}")
     w("  " + "-" * 55)
-    for name, m in [("HaploTR v4", ht_metrics), ("LongTR", lt_metrics), ("TRGT", trgt_metrics)]:
+    for name, m in [("MosaicTR v4", ht_metrics), ("LongTR", lt_metrics), ("TRGT", trgt_metrics)]:
         if m:
             w(f"  {name:<15s} {m['n']:>6d} {m['exact']:>6.1%} {m['w1bp']:>6.1%} "
               f"{m['mae']:>6.2f} {m['zyg_acc']:>6.1%} {m['geno_conc']:>6.1%}")
@@ -806,13 +806,13 @@ def main():
       f"{'Zyg%':>7s} {'GenConc':>7s}")
     w("  " + "-" * 55)
     for name, pairs_list, is_ht in [
-        ("HaploTR v4", ht_pairs, True),
+        ("MosaicTR v4", ht_pairs, True),
         ("LongTR", lt_pairs, False),
         ("TRGT", trgt_pairs, False),
     ]:
         if is_ht:
             sub = [(p, t) for p, t in pairs_list if t.is_variant]
-            m = compute_haplotr_metrics(sub)
+            m = compute_mosaictr_metrics(sub)
         else:
             sub = [p for p in pairs_list if p[2].is_variant]
             m = compute_tool_metrics(sub)

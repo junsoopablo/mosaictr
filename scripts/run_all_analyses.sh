@@ -1,6 +1,6 @@
 #!/bin/bash
-# Run all analyses for the HaploTR Application Note.
-# Prerequisites: genome-wide HaploTR results for HG002, HG003, HG004.
+# Run all analyses for the MosaicTR Application Note.
+# Prerequisites: genome-wide MosaicTR results for HG002, HG003, HG004.
 #
 # Usage:
 #   bash scripts/run_all_analyses.sh
@@ -21,14 +21,14 @@ TRGT_VCF="/vault/external-datasets/2026/HG002_PacBio-HiFi-Revio_TRGT-VCF_GRCh38/
 cd "$PROJ"
 
 echo "============================================"
-echo "  HaploTR Application Note — Full Analysis"
+echo "  MosaicTR Application Note — Full Analysis"
 echo "============================================"
 
 # 1. GIAB Benchmark
 echo ""
 echo "[1/6] Running GIAB Tier1 benchmark..."
 python scripts/benchmark_genome_wide.py \
-    --haplotr "$HG002_BED" \
+    --mosaictr "$HG002_BED" \
     --longtr-vcf "$LONGTR_VCF" \
     --trgt-vcf "$TRGT_VCF" \
     --output "$OUTDIR/benchmark_genome_wide_report.txt"
@@ -46,7 +46,7 @@ python scripts/analyze_mendelian.py \
 echo ""
 echo "[3/6] Running disease loci analysis..."
 python scripts/analyze_disease_loci.py \
-    --haplotr "$HG002_BED" \
+    --mosaictr "$HG002_BED" \
     --longtr-vcf "$LONGTR_VCF" \
     --trgt-vcf "$TRGT_VCF" \
     --output "$OUTDIR/disease_loci_report.txt"
@@ -55,7 +55,7 @@ python scripts/analyze_disease_loci.py \
 echo ""
 echo "[4/6] Running allele delta analysis..."
 python scripts/analyze_allele_delta.py \
-    --haplotr "$HG002_BED" \
+    --mosaictr "$HG002_BED" \
     --longtr-vcf "$LONGTR_VCF" \
     --trgt-vcf "$TRGT_VCF" \
     --output "$OUTDIR/allele_delta_report.txt"
@@ -64,7 +64,7 @@ python scripts/analyze_allele_delta.py \
 echo ""
 echo "[5/6] Running confidence calibration analysis..."
 python scripts/analyze_confidence.py \
-    --haplotr "$HG002_BED" \
+    --mosaictr "$HG002_BED" \
     --output "$OUTDIR/confidence_report.txt" \
     --output-tsv "$OUTDIR/confidence_curve.tsv"
 
@@ -73,7 +73,7 @@ echo ""
 echo "[6/6] Generating publication figures..."
 mkdir -p "$FIGDIR"
 python scripts/generate_figures.py \
-    --haplotr "$HG002_BED" \
+    --mosaictr "$HG002_BED" \
     --longtr-vcf "$LONGTR_VCF" \
     --trgt-vcf "$TRGT_VCF" \
     --output-dir "$FIGDIR"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Diagnose TP MAE for HaploTR v4 vs LongTR vs TRGT.
+"""Diagnose TP MAE for MosaicTR v4 vs LongTR vs TRGT.
 
-Analyzes why HaploTR v4 has higher TP MAE (~3.66) compared to
+Analyzes why MosaicTR v4 has higher TP MAE (~3.66) compared to
 LongTR (~2.60) and TRGT (~2.80). Examines error distributions,
 outlier contribution, motif-period breakdown, error direction,
 allele-specific errors, worst loci, and 3-way comparison.
@@ -20,8 +20,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.benchmark import LocusPrediction, LocusTruth, load_predictions
-from haplotr.utils import load_adotto_catalog, load_tier1_bed, match_tier1_to_catalog
+from mosaictr.benchmark import LocusPrediction, LocusTruth, load_predictions
+from mosaictr.utils import load_adotto_catalog, load_tier1_bed, match_tier1_to_catalog
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -135,7 +135,7 @@ def parse_trgt_vcf(vcf_path, chroms):
 # ---------------------------------------------------------------------------
 
 def match_preds_to_truth(preds, tier1_loci, catalog):
-    """Match HaploTR predictions (adotto coords) to Tier1 truth via overlap."""
+    """Match MosaicTR predictions (adotto coords) to Tier1 truth via overlap."""
     tier1_by_chrom = defaultdict(list)
     for t in tier1_loci:
         tier1_by_chrom[t.chrom].append((t.start, t.end, t))
@@ -381,7 +381,7 @@ def analyze_allele_specific(name, e1, e2, lines):
 
 
 def analyze_worst_loci(preds, pairs, lines, n_worst=50):
-    """Characteristics of HaploTR's worst loci."""
+    """Characteristics of MosaicTR's worst loci."""
     locus_errors = []
     for pred, truth in pairs:
         if not truth.is_variant:
@@ -394,7 +394,7 @@ def analyze_worst_loci(preds, pairs, lines, n_worst=50):
 
     locus_errors.sort(key=lambda x: -x[0])
 
-    lines.append(f"\n  HaploTR: Top {n_worst} worst TP loci")
+    lines.append(f"\n  MosaicTR: Top {n_worst} worst TP loci")
     lines.append(f"    {'#':>3s} {'chrom':<6s} {'start':>10s} {'motif':<15s} {'ml':>3s} "
                   f"{'ref_sz':>6s} {'pred_d1':>8s} {'pred_d2':>8s} {'true_d1':>8s} "
                   f"{'true_d2':>8s} {'MAE':>7s} {'conf':>5s} {'nrd':>4s}")
@@ -430,7 +430,7 @@ def analyze_worst_loci(preds, pairs, lines, n_worst=50):
 
 
 def analyze_3way_comparison(ht_pairs, lt_pairs, trgt_pairs, lines):
-    """3-way comparison: loci where HaploTR is bad but LongTR/TRGT are good."""
+    """3-way comparison: loci where MosaicTR is bad but LongTR/TRGT are good."""
     # Build truth-keyed lookup
     ht_by_truth = {}
     for pred, truth in ht_pairs:
@@ -482,13 +482,13 @@ def analyze_3way_comparison(ht_pairs, lt_pairs, trgt_pairs, lines):
             ht_same += 1
 
     total_tp_common = ht_better + ht_worse + ht_same
-    lines.append(f"\n  3-WAY COMPARISON: HaploTR vs best-of(LongTR, TRGT) on common TP loci")
+    lines.append(f"\n  3-WAY COMPARISON: MosaicTR vs best-of(LongTR, TRGT) on common TP loci")
     lines.append(f"    Common TP loci: {total_tp_common}")
-    lines.append(f"    HaploTR better (>0.5bp): {ht_better} ({ht_better / max(total_tp_common, 1):.1%})")
-    lines.append(f"    HaploTR worse  (>0.5bp): {ht_worse} ({ht_worse / max(total_tp_common, 1):.1%})")
+    lines.append(f"    MosaicTR better (>0.5bp): {ht_better} ({ht_better / max(total_tp_common, 1):.1%})")
+    lines.append(f"    MosaicTR worse  (>0.5bp): {ht_worse} ({ht_worse / max(total_tp_common, 1):.1%})")
     lines.append(f"    Similar (<=0.5bp):        {ht_same} ({ht_same / max(total_tp_common, 1):.1%})")
 
-    # Analyze characteristics of loci where HaploTR is worse
+    # Analyze characteristics of loci where MosaicTR is worse
     if worse_details:
         worse_details.sort(key=lambda x: -(x[0] - min(x[1], x[2])))
         mls = [x[3].motif_length for x in worse_details]
@@ -496,7 +496,7 @@ def analyze_3way_comparison(ht_pairs, lt_pairs, trgt_pairs, lines):
         confs = [x[4].confidence for x in worse_details]
         nreads = [x[4].n_reads for x in worse_details]
 
-        lines.append(f"\n    Characteristics of {ht_worse} HaploTR-worse loci:")
+        lines.append(f"\n    Characteristics of {ht_worse} MosaicTR-worse loci:")
 
         ml_counts = defaultdict(int)
         for ml in mls:
@@ -509,7 +509,7 @@ def analyze_3way_comparison(ht_pairs, lt_pairs, trgt_pairs, lines):
         lines.append(f"      N reads: mean={np.mean(nreads):.0f}")
 
         # Show top 20 worst discrepancies
-        lines.append(f"\n    Top 20 loci where HaploTR is worst relative to others:")
+        lines.append(f"\n    Top 20 loci where MosaicTR is worst relative to others:")
         lines.append(f"      {'#':>3s} {'chrom':<6s} {'start':>10s} {'ml':>3s} {'ref_sz':>6s} "
                       f"{'HT_MAE':>7s} {'LT_MAE':>7s} {'TR_MAE':>7s} {'gap':>6s}")
         lines.append("      " + "-" * 65)
@@ -541,13 +541,13 @@ def analyze_3way_comparison(ht_pairs, lt_pairs, trgt_pairs, lines):
     ml_arr = np.array(ml_list)
 
     lines.append(f"\n    Common TP loci MAE comparison:")
-    lines.append(f"      HaploTR: {ht_maes.mean():.4f}")
+    lines.append(f"      MosaicTR: {ht_maes.mean():.4f}")
     lines.append(f"      LongTR:  {lt_maes.mean():.4f}")
     lines.append(f"      TRGT:    {trgt_maes.mean():.4f}")
 
     # By motif period
     lines.append(f"\n    Common TP MAE by motif period:")
-    lines.append(f"      {'Period':<15s} {'n':>6s} {'HaploTR':>8s} {'LongTR':>8s} {'TRGT':>8s}")
+    lines.append(f"      {'Period':<15s} {'n':>6s} {'MosaicTR':>8s} {'LongTR':>8s} {'TRGT':>8s}")
     lines.append("      " + "-" * 45)
     for b in ["dinuc_homo", "STR_3-6", "VNTR_7+"]:
         mask = np.array([motif_coarse_bin(m) == b for m in ml_list])
@@ -568,7 +568,7 @@ def main():
         lines.append(s)
 
     w("=" * 80)
-    w("  TP MAE DIAGNOSIS: HaploTR v4 vs LongTR vs TRGT")
+    w("  TP MAE DIAGNOSIS: MosaicTR v4 vs LongTR vs TRGT")
     w("  Test set: chr21, chr22, chrX — GIAB Tier1 truth")
     w("=" * 80)
 
@@ -578,9 +578,9 @@ def main():
     catalog = load_adotto_catalog(CATALOG_BED, chroms=TEST_CHROMS)
     print(f"  Tier1: {len(tier1)}, Catalog: {len(catalog)}")
 
-    print("Loading HaploTR v4 predictions...")
+    print("Loading MosaicTR v4 predictions...")
     ht_preds = load_predictions(str(HAPLOTR_BED))
-    print(f"  HaploTR predictions: {len(ht_preds)}")
+    print(f"  MosaicTR predictions: {len(ht_preds)}")
 
     print("Parsing LongTR VCF...")
     longtr_dict = parse_longtr_vcf(LONGTR_VCF, TEST_CHROMS)
@@ -595,7 +595,7 @@ def main():
     ht_pairs = match_preds_to_truth(ht_preds, tier1, catalog)
     lt_pairs = match_tool_to_truth(longtr_dict, tier1, catalog)
     trgt_pairs = match_tool_to_truth(trgt_dict, tier1, catalog)
-    print(f"  HaploTR matched: {len(ht_pairs)}")
+    print(f"  MosaicTR matched: {len(ht_pairs)}")
     print(f"  LongTR matched: {len(lt_pairs)}")
     print(f"  TRGT matched: {len(trgt_pairs)}")
 
@@ -605,12 +605,12 @@ def main():
     trgt_tp = [(d1, d2, t) for d1, d2, t in trgt_pairs if t.is_variant]
 
     w(f"\n  Matched TP loci:")
-    w(f"    HaploTR: {len(ht_tp)}")
+    w(f"    MosaicTR: {len(ht_tp)}")
     w(f"    LongTR:  {len(lt_tp)}")
     w(f"    TRGT:    {len(trgt_tp)}")
 
     # ── Extract arrays ────────────────────────────────────────────────────
-    # HaploTR
+    # MosaicTR
     ht_pd1, ht_pd2, ht_td1, ht_td2, ht_ml = [], [], [], [], []
     for pred, truth in ht_tp:
         ref_size = pred.end - pred.start
@@ -647,7 +647,7 @@ def main():
     w(f"\n{'='*80}")
     w("  (a) ERROR DISTRIBUTION")
     w(f"{'='*80}")
-    analyze_error_distribution("HaploTR v4", ht_e1, ht_e2, lines)
+    analyze_error_distribution("MosaicTR v4", ht_e1, ht_e2, lines)
     analyze_error_distribution("LongTR", lt_e1, lt_e2, lines)
     analyze_error_distribution("TRGT", trgt_e1, trgt_e2, lines)
 
@@ -657,7 +657,7 @@ def main():
     w(f"\n{'='*80}")
     w("  (b) OUTLIER CONTRIBUTION TO MAE")
     w(f"{'='*80}")
-    analyze_outlier_contribution("HaploTR v4", ht_e1, ht_e2, lines)
+    analyze_outlier_contribution("MosaicTR v4", ht_e1, ht_e2, lines)
     analyze_outlier_contribution("LongTR", lt_e1, lt_e2, lines)
     analyze_outlier_contribution("TRGT", trgt_e1, trgt_e2, lines)
 
@@ -667,7 +667,7 @@ def main():
     w(f"\n{'='*80}")
     w("  (c) MAE BY MOTIF PERIOD")
     w(f"{'='*80}")
-    analyze_by_motif_period("HaploTR v4", ht_pd1, ht_pd2, ht_td1, ht_td2, ht_ml, lines)
+    analyze_by_motif_period("MosaicTR v4", ht_pd1, ht_pd2, ht_td1, ht_td2, ht_ml, lines)
     analyze_by_motif_period("LongTR", lt_pd1, lt_pd2, lt_td1, lt_td2, lt_ml, lines)
     analyze_by_motif_period("TRGT", trgt_pd1, trgt_pd2, trgt_td1, trgt_td2, trgt_ml, lines)
 
@@ -677,7 +677,7 @@ def main():
     w(f"\n{'='*80}")
     w("  (d) ERROR DIRECTION")
     w(f"{'='*80}")
-    analyze_error_direction("HaploTR v4", ht_pd1, ht_pd2, ht_td1, ht_td2, lines)
+    analyze_error_direction("MosaicTR v4", ht_pd1, ht_pd2, ht_td1, ht_td2, lines)
     analyze_error_direction("LongTR", lt_pd1, lt_pd2, lt_td1, lt_td2, lines)
     analyze_error_direction("TRGT", trgt_pd1, trgt_pd2, trgt_td1, trgt_td2, lines)
 
@@ -687,12 +687,12 @@ def main():
     w(f"\n{'='*80}")
     w("  (e) ALLELE-SPECIFIC MAE")
     w(f"{'='*80}")
-    analyze_allele_specific("HaploTR v4", ht_e1, ht_e2, lines)
+    analyze_allele_specific("MosaicTR v4", ht_e1, ht_e2, lines)
     analyze_allele_specific("LongTR", lt_e1, lt_e2, lines)
     analyze_allele_specific("TRGT", trgt_e1, trgt_e2, lines)
 
     # ══════════════════════════════════════════════════════════════════════
-    # (f) HaploTR worst loci
+    # (f) MosaicTR worst loci
     # ══════════════════════════════════════════════════════════════════════
     w(f"\n{'='*80}")
     w("  (f) HAPLOTR WORST LOCI (top 50)")
@@ -717,12 +717,12 @@ def main():
     trgt_all_e = np.concatenate([trgt_e1, trgt_e2])
 
     w(f"\n  TP MAE comparison:")
-    w(f"    HaploTR: {ht_all_e.mean():.4f}")
+    w(f"    MosaicTR: {ht_all_e.mean():.4f}")
     w(f"    LongTR:  {lt_all_e.mean():.4f}")
     w(f"    TRGT:    {trgt_all_e.mean():.4f}")
 
     w(f"\n  Median AE (less sensitive to outliers):")
-    w(f"    HaploTR: {np.median(ht_all_e):.4f}")
+    w(f"    MosaicTR: {np.median(ht_all_e):.4f}")
     w(f"    LongTR:  {np.median(lt_all_e):.4f}")
     w(f"    TRGT:    {np.median(trgt_all_e):.4f}")
 
@@ -733,7 +733,7 @@ def main():
     top5_contrib = sorted_ht[:top5_idx].sum() / ht_all_e.sum() * 100
     ht_mae_sans_top5 = sorted_ht[top5_idx:].mean()
 
-    w(f"\n  Outlier impact (HaploTR):")
+    w(f"\n  Outlier impact (MosaicTR):")
     w(f"    Top 5% alleles contribute {top5_contrib:.1f}% of total AE")
     w(f"    MAE without top 5% outliers: {ht_mae_sans_top5:.4f}")
     w(f"    (vs full MAE: {ht_all_e.mean():.4f})")

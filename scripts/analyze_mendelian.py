@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mendelian inheritance analysis for HaploTR.
+"""Mendelian inheritance analysis for MosaicTR.
 
 Checks whether child (HG002) genotypes are consistent with parental
 genotypes (HG003=father, HG004=mother) at shared loci.
@@ -32,7 +32,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.benchmark import LocusPrediction, load_predictions, _motif_period_bin
+from mosaictr.benchmark import LocusPrediction, load_predictions, _motif_period_bin
 
 logging.basicConfig(
     level=logging.INFO,
@@ -230,7 +230,7 @@ def format_report(summary: dict) -> str:
 
     w("=" * 80)
     w("  MENDELIAN INHERITANCE ANALYSIS")
-    w("  HaploTR v4 — HG002 (child) / HG003 (father) / HG004 (mother)")
+    w("  MosaicTR v4 — HG002 (child) / HG003 (father) / HG004 (mother)")
     w("=" * 80)
 
     w(f"\n  Common loci across trio: {summary['n_total']:,}")
@@ -256,9 +256,9 @@ def format_report(summary: dict) -> str:
     w(f"  {'TRGT':<20s} {'Off-by-one-unit Mendelian':<30s} {'98.38%':>8s}")
     w(f"  {'STRkit':<20s} {'Strict Mendelian':<30s} {'97.85%':>8s}")
     w(f"  {'STRkit':<20s} {'Within 1bp Mendelian':<30s} {'99.08%':>8s}")
-    w(f"  {'HaploTR v4':<20s} {'Strict Mendelian':<30s} {summary['mi_strict_rate']:>7.2%}")
-    w(f"  {'HaploTR v4':<20s} {'Within 1bp Mendelian':<30s} {summary['mi_within_1bp_rate']:>7.2%}")
-    w(f"  {'HaploTR v4':<20s} {'Within 1 motif unit':<30s} {summary['mi_within_1motif_rate']:>7.2%}")
+    w(f"  {'MosaicTR v4':<20s} {'Strict Mendelian':<30s} {summary['mi_strict_rate']:>7.2%}")
+    w(f"  {'MosaicTR v4':<20s} {'Within 1bp Mendelian':<30s} {summary['mi_within_1bp_rate']:>7.2%}")
+    w(f"  {'MosaicTR v4':<20s} {'Within 1 motif unit':<30s} {summary['mi_within_1motif_rate']:>7.2%}")
 
     # By motif period
     w(f"\n{'='*80}")
@@ -317,10 +317,10 @@ def format_report(summary: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Mendelian inheritance analysis for HaploTR trio")
-    parser.add_argument("--child", required=True, help="HG002 (child) HaploTR BED")
-    parser.add_argument("--father", required=True, help="HG003 (father) HaploTR BED")
-    parser.add_argument("--mother", required=True, help="HG004 (mother) HaploTR BED")
+    parser = argparse.ArgumentParser(description="Mendelian inheritance analysis for MosaicTR trio")
+    parser.add_argument("--child", required=True, help="HG002 (child) MosaicTR BED")
+    parser.add_argument("--father", required=True, help="HG003 (father) MosaicTR BED")
+    parser.add_argument("--mother", required=True, help="HG004 (mother) MosaicTR BED")
     parser.add_argument("--output", required=True, help="Output report file")
     args = parser.parse_args()
 

@@ -1,10 +1,25 @@
-# HaploTR
+# MosaicTR
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
 Haplotype-aware tandem repeat genotyping and somatic instability analysis from long-read sequencing.
 
-HaploTR uses HP (haplotype) tags in BAM files to decompose tandem repeat signals per haplotype, enabling:
+MosaicTR uses HP (haplotype) tags in BAM files to decompose tandem repeat signals per haplotype, enabling:
 - **Genotyping** with concordance-based zygosity calling
-- **Somatic instability** quantification with 6 per-haplotype metrics
+- **Somatic instability** quantification with 2 per-haplotype metrics (HII, IAS)
+
+## Quick Start
+
+```bash
+pip install .
+
+# Genotype TR loci
+mosaictr genotype --bam tagged.bam --loci loci.bed --output genotypes.bed
+
+# Compute somatic instability
+mosaictr instability --bam tagged.bam --loci loci.bed --output instability.tsv
+```
 
 ## Installation
 
@@ -25,7 +40,7 @@ pip install .
 ### Genotype
 
 ```bash
-haplotr genotype \
+mosaictr genotype \
   --bam aligned.bam \
   --loci loci.bed \
   --output genotypes.bed \
@@ -45,7 +60,7 @@ Options:
 ### Instability
 
 ```bash
-haplotr instability \
+mosaictr instability \
   --bam aligned.bam \
   --loci loci.bed \
   --output instability.tsv \
@@ -53,13 +68,15 @@ haplotr instability \
 ```
 
 Options:
-- `--min-instability 0.0` — Minimum AIS threshold for output filtering
+- `--min-instability 0.0` — Minimum HII threshold for output filtering
 - `--min-hp-reads 3` / `--min-hp-frac 0.15` — HP sufficiency thresholds
+- `--noise-threshold 0.45` — HII threshold for unstable haplotype labeling
+- `--skip-hp-check` — Skip HP tag check (uses gap-split/pooled fallback)
 
 ### Evaluate
 
 ```bash
-haplotr evaluate \
+mosaictr evaluate \
   --predictions genotypes.bed \
   --truth-bed giab_tier1.bed \
   --catalog adotto_catalog.bed \
@@ -68,7 +85,7 @@ haplotr evaluate \
 
 ## HP Tagging (Recommended)
 
-HaploTR works best with **HP-tagged BAMs** for true per-haplotype analysis. Without HP tags, the tool falls back to gap-split (bimodal detection) or pooled analysis, which provides lower confidence results.
+MosaicTR works best with **HP-tagged BAMs** for true per-haplotype analysis. Without HP tags, the tool falls back to gap-split (bimodal detection) or pooled analysis, which provides lower confidence results.
 
 The instability module will log a warning if fewer than 50% of loci use HP-tagged analysis.
 
@@ -116,31 +133,34 @@ Columns: chrom, start, end, motif sequence.
 | start | Start position |
 | end | End position |
 | motif | Repeat motif sequence |
-| allele1 | Allele 1 size (bp difference from reference) |
-| allele2 | Allele 2 size (bp difference from reference) |
+| allele1 | Allele 1 size (bp) |
+| allele2 | Allele 2 size (bp) |
 | zygosity | HOM or HET |
 | confidence | Zygosity confidence score [0, 1] |
 | n_reads | Total reads at locus |
 
-### Instability TSV (25 columns)
+### Instability TSV (20 columns)
 
 | Column | Description |
 |--------|-------------|
 | chrom, start, end, motif | Locus coordinates and motif |
-| modal_h1, modal_h2 | Modal allele size per haplotype (bp diff from ref) |
-| hii_h1, hii_h2 | Haplotype Instability Index (motif-normalized dispersion) |
-| ser_h1, ser_h2 | Somatic Expansion Ratio (fraction expanded > 1 motif unit) |
-| scr_h1, scr_h2 | Somatic Contraction Ratio (fraction contracted > 1 motif unit) |
-| ecb_h1, ecb_h2 | Expansion-Contraction Bias [-1, +1] |
+| median_h1, median_h2 | Median allele size per haplotype (bp) |
+| hii_h1, hii_h2 | Haplotype Instability Index (motif-normalized MAD) |
 | ias | Instability Asymmetry Score (inter-haplotype difference) |
-| ais | Aggregate Instability Score (confidence-weighted summary) |
-| range_h1, range_h2 | Read length range per haplotype |
+| range_h1, range_h2 | Read length range per haplotype (p5-p95) |
 | n_h1, n_h2, n_total | Read counts per haplotype and total |
 | concordance | HP concordance score |
 | analysis_path | hp-tagged, gap-split, or pooled |
-| unstable_haplotype | Which haplotype is more unstable (h1/h2/both/none) |
+| unstable_haplotype | Which haplotype is unstable (h1/h2/both/none) |
 | dropout_flag | 1 if possible allele dropout detected |
+| n_trimmed_h1, n_trimmed_h2 | Reads removed by MAD-based outlier trimming |
+
+## Citation
+
+If you use MosaicTR, please cite:
+
+> Park J, Chang H. MosaicTR: haplotype-aware tandem repeat genotyping and somatic instability quantification from long-read sequencing. *Bioinformatics* (2026).
 
 ## License
 
-See LICENSE file.
+MIT License. See [LICENSE](LICENSE) file.

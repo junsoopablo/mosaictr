@@ -35,8 +35,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from haplotr.genotype import ReadInfo, extract_reads_enhanced
-from haplotr.instability import compute_instability
+from mosaictr.genotype import ReadInfo, extract_reads_enhanced
+from mosaictr.instability import compute_instability
 
 logging.basicConfig(
     level=logging.INFO,

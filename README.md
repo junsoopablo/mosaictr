@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-Haplotype-aware tandem repeat genotyping and somatic instability analysis from long-read sequencing.
+Tandem repeat somatic instability quantification from long-read sequencing.
 
 MosaicTR uses HP (haplotype) tags in BAM files to decompose tandem repeat signals per haplotype, enabling:
 - **Somatic instability** quantification with 2 per-haplotype metrics (HII, IAS)

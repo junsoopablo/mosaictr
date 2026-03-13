@@ -45,8 +45,8 @@ CLAUDE.md
 # Coverage reports
 .coverage
 
-# Synology metadata
-manuscript/@eaDir/
+# Manuscript (unpublished)
+manuscript/
 
 # Misc
 *.xlsx

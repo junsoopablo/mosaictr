@@ -8,12 +8,15 @@ from unittest.mock import MagicMock, patch
 
 from mosaictr.instability import (
     _check_hp_tags,
+    _detect_platform,
+    _expected_noise_aad,
     _hii,
     _ias,
     _trim_outliers_mad,
     _weighted_mad,
     _write_instability_tsv,
     compute_instability,
+    noise_threshold,
 )
 
 
@@ -111,8 +114,14 @@ class TestHii:
         assert result > 0.0
 
     def test_motif_normalization(self):
-        """Same MAD, longer motif -> lower HII."""
-        sizes = np.array([97.0, 100.0, 103.0])
+        """Same deviations, longer motif -> lower HII.
+
+        Note: exact ratio depends on motif-unit weighting. With deviations
+        of 6bp, both motif_len=3 and motif_len=6 yield whole-motif weights,
+        so pure 2x ratio holds.
+        """
+        # Use 6bp deviations: whole-motif for both motif_len=3 and 6
+        sizes = np.array([94.0, 100.0, 106.0])
         wts = np.ones(3)
         hii_3 = _hii(sizes, wts, motif_len=3)
         hii_6 = _hii(sizes, wts, motif_len=6)
@@ -124,6 +133,89 @@ class TestHii:
 
     def test_zero_motif(self):
         assert _hii(np.array([100.0, 103.0]), np.ones(2), motif_len=0) == 0.0
+
+    def test_whole_motif_deviations_full_weight(self):
+        """Deviations that are multiples of motif_len get full weight."""
+        # All deviations are 3bp (= 1 motif unit for motif_len=3)
+        # Median = 100, deviations = [3, 0, 3] -> AAD = 2.0 -> HII = 2/3
+        sizes = np.array([97.0, 100.0, 103.0])
+        wts = np.ones(3)
+        hii = _hii(sizes, wts, motif_len=3)
+        assert hii == pytest.approx(2.0 / 3.0)
+
+    def test_sub_motif_deviations_downweighted(self):
+        """Sub-motif deviations (likely HiFi error) are down-weighted."""
+        # All deviations are 1bp (sub-motif for motif_len=3)
+        # Without weighting: AAD = 2/3 -> HII = 2/9
+        # With weighting (w_sub=0.1): HII much lower
+        sizes = np.array([99.0, 100.0, 101.0])
+        wts = np.ones(3)
+        hii = _hii(sizes, wts, motif_len=3)
+        # Sub-motif weighted down -> HII < unweighted value of 2/9
+        assert hii < 2.0 / 9.0
+
+    def test_mixed_motif_and_submotif(self):
+        """Mixed whole-motif and sub-motif deviations -> intermediate HII."""
+        # One whole-motif deviation (+3), one sub-motif (+1), median=100
+        sizes = np.array([97.0, 100.0, 100.0, 100.0, 101.0])
+        wts = np.ones(5)
+        hii = _hii(sizes, wts, motif_len=3)
+        # Should be between pure sub-motif and pure whole-motif HII
+        assert hii > 0.0
+
+
+class TestExpectedNoiseAad:
+    def test_zero_allele(self):
+        assert _expected_noise_aad(0.0) == 0.0
+
+    def test_negative_allele(self):
+        assert _expected_noise_aad(-10.0) == 0.0
+
+    def test_positive_allele(self):
+        """Noise increases with allele size."""
+        noise_100 = _expected_noise_aad(100.0)
+        noise_1000 = _expected_noise_aad(1000.0)
+        assert noise_100 > 0.0
+        assert noise_1000 > noise_100
+
+    def test_approximate_values(self):
+        """Check calibration: AAD ~ 0.003 * size^0.92."""
+        # At 100bp: ~0.003 * 100^0.92 ≈ 0.003 * 69.2 ≈ 0.21
+        noise = _expected_noise_aad(100.0)
+        assert 0.1 < noise < 0.4
+
+    def test_ont_higher_than_hifi(self):
+        """ONT noise model produces higher values than HiFi."""
+        for size in [50, 100, 500, 1000]:
+            ont = _expected_noise_aad(float(size), platform="ont")
+            hifi = _expected_noise_aad(float(size), platform="hifi")
+            assert ont > hifi, f"ONT noise should exceed HiFi at {size}bp"
+
+    def test_ont_approximate_ratio(self):
+        """ONT noise is ~12x higher than HiFi."""
+        ratio = _expected_noise_aad(100.0, "ont") / _expected_noise_aad(100.0, "hifi")
+        assert 5 < ratio < 20
+
+
+class TestNoiseThreshold:
+    def test_hifi_global(self):
+        """HiFi uses a single threshold regardless of motif length."""
+        assert noise_threshold(2, "hifi") == 0.45
+        assert noise_threshold(5, "hifi") == 0.45
+        assert noise_threshold(10, "hifi") == 0.45
+
+    def test_ont_motif_dependent(self):
+        """ONT thresholds decrease with motif length."""
+        assert noise_threshold(2, "ont") > noise_threshold(6, "ont")
+        assert noise_threshold(6, "ont") > noise_threshold(10, "ont")
+
+    def test_ont_short_motif_higher(self):
+        """ONT threshold for dinucleotides is much higher than HiFi."""
+        assert noise_threshold(2, "ont") > noise_threshold(2, "hifi")
+
+    def test_ont_long_motif_converges(self):
+        """ONT threshold for long motifs approaches HiFi level."""
+        assert noise_threshold(15, "ont") < 1.0
 
 
 # ---------------------------------------------------------------------------

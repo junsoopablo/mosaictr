@@ -148,12 +148,14 @@ def evaluate(predictions, truth_bed, catalog, output, chroms):
               help="Minimum total reads per locus to report (default: 0, no filter)")
 @click.option("--skip-hp-check", is_flag=True, default=False,
               help="Skip HP tag check (for non-HP-tagged BAMs; uses gap-split/pooled fallback)")
+@click.option("--platform", default=None, type=click.Choice(["hifi", "ont"]),
+              help="Sequencing platform (auto-detected from BAM if not specified)")
 @click.option("--vcf", "vcf_output", default=None, type=click.Path(),
               help="Additionally write VCF output to this path")
 @click.option("--sample-name", default="SAMPLE", help="Sample name for VCF output")
 def instability(bam, loci, output, threads, min_mapq, min_flank, max_reads,
                 ref, min_hp_reads, min_hp_frac, min_instability, min_reads,
-                skip_hp_check, vcf_output, sample_name):
+                skip_hp_check, platform, vcf_output, sample_name):
     """Compute per-haplotype somatic instability metrics for TR loci.
 
     Provides 2 metrics: HII (haplotype instability index) and
@@ -175,6 +177,7 @@ def instability(bam, loci, output, threads, min_mapq, min_flank, max_reads,
         min_instability=min_instability,
         min_reads=min_reads,
         skip_hp_check=skip_hp_check,
+        platform=platform,
     )
 
     if vcf_output:

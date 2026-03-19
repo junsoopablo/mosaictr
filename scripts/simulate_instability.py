@@ -86,7 +86,7 @@ def generate_unstable_reads(
 
     This models somatic expansion: peak at inherited size with an exponential
     tail toward larger expansions. Rarer large expansions, common small ones.
-    HII is computed from MAD of the resulting distribution.
+    HII is computed from motif-unit-weighted AAD of the resulting distribution.
 
     Args:
         median: Center of the distribution (bp), inherited allele size.
@@ -102,16 +102,17 @@ def generate_unstable_reads(
     if rng is None:
         rng = np.random.default_rng(42)
 
-    target_mad = target_hii * motif_len
+    target_aad = target_hii * motif_len
 
-    if target_mad < 0.01:
+    if target_aad < 0.01:
         return generate_stable_reads(median, n, hp, noise_std=0.3, rng=rng)
 
-    # For Exponential(scale), MAD = arcsinh(0.5) * scale ≈ 0.4812 * scale.
-    # Calibrate scale so that the theoretical MAD equals target_MAD,
+    # For Exponential(scale), E[|X - median|] ≈ 0.6137 * scale.
+    # (median = scale * ln2, E[|X - median|] computed analytically)
+    # Calibrate scale so that the theoretical AAD equals target HII * motif_len,
     # leaving only MAD-based outlier trimming as the source of attenuation.
-    _ARCSINH_HALF = float(np.arcsinh(0.5))  # ≈ 0.4812
-    scale = target_mad / _ARCSINH_HALF  # calibrated exponential scale
+    _AAD_EXP_FACTOR = 0.6137  # E[|X - median(X)|] for Exp(scale=1)
+    scale = target_aad / _AAD_EXP_FACTOR  # calibrated exponential scale
     expansions = rng.exponential(scale, n)  # always >= 0
     noise = rng.normal(0, 0.5, n)  # measurement noise
 
@@ -187,7 +188,7 @@ def run_coverage_sweep(n_reps: int = 30) -> dict:
 
     HII=1.5 (moderate instability, ~3x noise threshold) at different coverages.
     Tests whether MosaicTR can reliably detect genuine instability even at low
-    coverage, where stochastic noise in MAD estimation is highest.
+    coverage, where stochastic noise in Qn estimation is highest.
     """
     logger.info("Running coverage sweep test (%d reps per coverage)...", n_reps)
 

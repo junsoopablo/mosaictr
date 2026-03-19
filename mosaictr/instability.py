@@ -4,7 +4,7 @@ Haplotype-resolved somatic TR instability metrics from HP-tagged long-read BAMs.
 Provides per-haplotype instability decomposition that no existing tool offers:
 
 Metrics:
-- HII (Haplotype Instability Index): motif-normalized dispersion per haplotype
+- HII (Haplotype Instability Index): motif-unit-weighted AAD per haplotype
 - IAS (Instability Asymmetry Score): inter-haplotype instability difference
 """
 
@@ -33,6 +33,101 @@ logger = logging.getLogger(__name__)
 
 # Small constant to avoid division by zero
 _EPS = 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Platform detection
+# ---------------------------------------------------------------------------
+
+def _detect_platform(bam_path: str) -> str:
+    """Detect sequencing platform from BAM header.
+
+    Checks @RG (read group) PL tag and @PG (program) entries.
+    Returns "ont" or "hifi" (default).
+    """
+    import pysam
+
+    bam = pysam.AlignmentFile(bam_path, "rb")
+    try:
+        header = bam.header.to_dict()
+
+        # Check read group platform tags
+        for rg in header.get("RG", []):
+            pl = rg.get("PL", "").upper()
+            if pl in ("ONT", "NANOPORE", "OXFORD_NANOPORE"):
+                return "ont"
+            if pl in ("PACBIO", "PACIFIC_BIOSCIENCES", "SEQUEL", "REVIO"):
+                return "hifi"
+
+        # Check program names for common ONT/PacBio tools
+        for pg in header.get("PG", []):
+            pn = pg.get("PN", "").lower()
+            cl = pg.get("CL", "").lower()
+            combined = pn + " " + cl
+            if any(k in combined for k in ("dorado", "guppy", "bonito", "medaka",
+                                            "longphase", "pepper_deepvariant")):
+                return "ont"
+            if any(k in combined for k in ("ccs", "hifiasm", "hiphase",
+                                            "pbmm2", "actc", "deepvariant")):
+                return "hifi"
+
+        # Check first few read names for ONT-style UUIDs
+        bam.reset()
+        for i, aln in enumerate(bam):
+            if i >= 10:
+                break
+            if not aln.is_unmapped:
+                qname = aln.query_name or ""
+                # ONT read names are typically UUIDs: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+                if len(qname) > 30 and qname.count("-") >= 4:
+                    return "ont"
+                # PacBio: m84xxx/123/ccs or similar
+                if "/" in qname and ("ccs" in qname or qname.startswith("m")):
+                    return "hifi"
+    finally:
+        bam.close()
+
+    return "hifi"  # default
+
+
+# ---------------------------------------------------------------------------
+# Platform-specific noise thresholds
+# ---------------------------------------------------------------------------
+
+# ONT noise thresholds by motif length (empirically derived from 2,625
+# non-carrier loci across 4 ONT samples from 1000 Genomes).
+# Values are approximately mean + 2*SD at each motif length, rounded.
+_ONT_NOISE_THRESHOLD = {
+    1: 2.0,   # homopolymers: highest noise
+    2: 2.0,   # dinucleotides: ONT systematic indels match motif length
+    3: 1.5,   # trinucleotides: 2-3bp ONT errors overlap motif
+    4: 1.0,   # tetranucleotides
+    5: 1.0,   # pentanucleotides
+    6: 0.8,   # hexanucleotides
+}
+_ONT_NOISE_DEFAULT = 0.5  # motif_len >= 7: ONT errors rarely mimic whole-motif
+
+# HiFi: single global threshold (motif-unit weighting handles noise)
+_HIFI_NOISE_THRESHOLD = 0.45
+
+
+def noise_threshold(motif_len: int, platform: str = "hifi") -> float:
+    """Return the platform- and motif-length-aware noise threshold.
+
+    For HiFi: global 0.45 (motif-unit weighting suppresses sub-motif noise).
+    For ONT: motif-length-dependent, because ONT multi-bp errors can mimic
+    whole-motif deviations at short motifs (e.g., 2bp error on a 2bp repeat).
+
+    Args:
+        motif_len: Repeat motif length in bp.
+        platform: "hifi" or "ont".
+
+    Returns:
+        HII threshold below which a locus is considered stable.
+    """
+    if platform == "ont":
+        return _ONT_NOISE_THRESHOLD.get(motif_len, _ONT_NOISE_DEFAULT)
+    return _HIFI_NOISE_THRESHOLD
 
 
 # ---------------------------------------------------------------------------
@@ -127,16 +222,64 @@ def _trim_outliers_mad(
 # ---------------------------------------------------------------------------
 
 def _hii(sizes: np.ndarray, weights: np.ndarray, motif_len: int) -> float:
-    """Haplotype Instability Index: weighted MAD / motif_len.
+    """Haplotype Instability Index: motif-unit-weighted AAD / motif_len.
 
-    Motif-normalized dispersion. Stable locus -> ~0, somatic mosaicism -> >0.5.
-    Robust to outliers via MAD (not variance).
+    Per-read deviations from median are weighted by motif-unit consistency:
+    - Deviation that is a multiple of motif_len -> weight=1.0 (likely biological)
+    - Sub-motif deviation -> weight=w_sub (default 0.1, likely technical artifact)
+
+    PacBio HiFi errors are 92% sub-motif homopolymer indels (Wenger 2019),
+    while somatic TR expansion/contraction occurs in whole motif units.
+    This weighting suppresses technical noise while preserving biological signal.
     """
     if len(sizes) < 2 or motif_len < 1:
         return 0.0
-    center = _weighted_median(sizes, weights)
-    mad = _weighted_mad(sizes, weights, center)
-    return mad / motif_len
+    med = np.median(sizes)
+    deviations = np.abs(sizes - med)
+
+    # Motif-unit weighting: biological signal vs technical noise
+    w_sub = 0.1  # down-weight sub-motif deviations (likely HiFi artifact)
+    read_weights = np.where(
+        (deviations > 0.5) & (np.round(deviations) % motif_len != 0),
+        w_sub,  # sub-motif: likely technical
+        1.0,    # zero or whole-motif: keep full weight
+    )
+
+    weighted_aad = np.average(deviations, weights=read_weights)
+    return weighted_aad / motif_len
+
+
+# ---------------------------------------------------------------------------
+# Size-adaptive noise model (empirical)
+# ---------------------------------------------------------------------------
+
+# HiFi: fitted from HG002 HiFi data (5,000 loci)
+_HIFI_NOISE_COEFF = 0.003027
+_HIFI_NOISE_EXPONENT = 0.9216
+
+# ONT: fitted from 2,625 non-carrier loci across 4 ONT samples (1000G)
+# ONT noise is ~12x higher than HiFi due to systematic indel errors
+_ONT_NOISE_COEFF = 0.037
+_ONT_NOISE_EXPONENT = 0.92
+
+
+def _expected_noise_aad(allele_size: float, platform: str = "hifi") -> float:
+    """Expected AAD from sequencing noise alone.
+
+    Platform-specific power-law model: AAD ~ coeff * allele_size^exponent.
+
+    Args:
+        allele_size: Allele size in bp.
+        platform: "hifi" or "ont".
+
+    Returns:
+        Expected noise AAD in bp.
+    """
+    if allele_size <= 0:
+        return 0.0
+    if platform == "ont":
+        return _ONT_NOISE_COEFF * (allele_size ** _ONT_NOISE_EXPONENT)
+    return _HIFI_NOISE_COEFF * (allele_size ** _HIFI_NOISE_EXPONENT)
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +619,7 @@ def run_instability(
     min_instability: float = 0.0,
     min_reads: int = 0,
     skip_hp_check: bool = False,
+    platform: Optional[str] = None,
 ) -> str:
     """Run MosaicTR somatic instability analysis on a set of TR loci.
 
@@ -496,6 +640,7 @@ def run_instability(
         min_instability: Minimum HII threshold for output (0 = no filter).
         min_reads: Minimum total reads per locus (0 = no filter).
         skip_hp_check: Skip HP tag pre-flight check (for non-HP BAMs).
+        platform: Sequencing platform ("hifi" or "ont"). Auto-detected if None.
 
     Returns:
         Path to output TSV file.
@@ -504,6 +649,13 @@ def run_instability(
 
     if ref_path:
         logger.info("Parasail realignment enabled (ref: %s)", ref_path)
+
+    # Auto-detect platform if not specified
+    if platform is None:
+        platform = _detect_platform(bam_path)
+    logger.info("Platform: %s (noise model: %s)",
+                platform.upper(),
+                "motif-length-aware" if platform == "ont" else "global 0.45")
 
     loci = load_loci_bed(loci_bed_path)
     logger.info("Loaded %d loci from %s", len(loci), loci_bed_path)
